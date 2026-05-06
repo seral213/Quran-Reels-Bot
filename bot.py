@@ -34,7 +34,15 @@ def send_error_to_telegram(error_message):
 # ================= 1. نظام الذاكرة =================
 def load_history():
     if os.path.exists(HISTORY_FILE):
-        with open(HISTORY_FILE, "r") as f: return json.load(f)
+        try:
+            with open(HISTORY_FILE, "r") as f:
+                data = json.load(f)
+                # التأكد من وجود المفتاح حتى لو كان الملف موجوداً
+                if "used_videos" not in data:
+                    data["used_videos"] = []
+                return data
+        except:
+            return {"used_videos": []}
     return {"used_videos": []}
 
 def save_history(history):
