@@ -2,9 +2,8 @@ name: Quran Reels Auto Publisher
 
 on:
   schedule:
-    # التوقيت العالمي 15:00 يعادل بالضبط الساعة 6:00 مساءً بتوقيت اليمن
-    - cron: '0 15 * * *' 
-  workflow_dispatch: # هذا السطر يسمح لك بالتشغيل اليدوي متى أردت
+    - cron: '0 15 * * *'
+  workflow_dispatch:
 
 jobs:
   build:
@@ -27,6 +26,13 @@ jobs:
 
     - name: تثبيت مكتبات بايثون
       run: pip install -r requirements.txt
+
+    # ================= الخطوة النووية =================
+    - name: تشغيل درع الحماية (Cloudflare WARP VPN) لكسر حظر يوتيوب
+      uses: fscarmen/warp-on-actions@v1.2
+      with:
+        stack: ipv4
+    # ==================================================
 
     - name: تشغيل استوديو المونتاج والنشر
       env:
