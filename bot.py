@@ -53,37 +53,31 @@ def save_history(history):
 
 # ================= تجهيز الكوكيز =================
 def setup_cookies():
-    if YOUTUBE_COOKIES:
+    if YOUTUBE_COOKIES and len(YOUTUBE_COOKIES) > 10:
         with open("cookies.txt", "w") as f:
             f.write(YOUTUBE_COOKIES)
         return "cookies.txt"
     return None
 
-# ================= 2. تحميل الصوت والفلترة الصارمة =================
+# ================= 2. تحميل الصوت والفلترة =================
 def fetch_and_trim_audio():
     history = load_history()
     cookie_file = setup_cookies()
     
-    # قائمة الكلمات المحظورة (تستبعد الأذكار والرقية فقط)
+    # 1. أولاً: تعريف إعدادات البحث (تجنب خطأ NameError)
+    ydl_opts_flat = {
+        'quiet': True,
+        'extract_flat': True,
+    }
+    if cookie_file:
+        ydl_opts_flat['cookiefile'] = cookie_file
+    
+    # 2. قائمة الكلمات المحظورة (الأذكار والرقية فقط)
     forbidden_keywords = [
         'أذكار', 'اذكار', 'الصباح', 'المساء', 'النوم', 'الاستيقاظ', 
         'رقية', 'رقيّه', 'شرعية', 'شرعيه', 'دعاء', 'أدعية', 'ادعية', 
         'حصن المسلم', 'بث مباشر', 'مباشر الآن', 'برودكاست'
     ]
-    
-        # خيارات التحميل مع فك التشفير الذكي
-    ydl_opts_dl = {
-        'format': 'ba/b', # يطلب أفضل صوت متاح ببساطة لتجنب تعقيدات التشفير
-        'outtmpl': 'raw_audio.%(ext)s',
-        'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3'}],
-        'quiet': True,
-        'nocheckcertificate': True,
-        'ignoreerrors': True,
-        'no_warnings': True,
-    }
-    
-    if cookie_file:
-        ydl_opts_flat['cookiefile'] = cookie_file
     
     selected_video = None
     selected_reciter = ""
@@ -100,10 +94,11 @@ def fetch_and_trim_audio():
                     vid_id = entry.get('id', '')
                     title = entry.get('title', '')
                     
-                    # فحص العنوان لاستبعاد الأذكار والرقية
+                    if not vid_id or not title: continue
+                    
+                    # فحص العنوان لاستبعاد الأذكار
                     is_forbidden = any(word.lower() in title.lower() for word in forbidden_keywords)
                     
-                    # الشرط: معرف فيديو صحيح + لم يستخدم + ليس أذكار/رقية
                     if len(vid_id) == 11 and vid_id not in history['used_videos'] and not is_forbidden:
                         selected_video = entry
                         selected_reciter = channel['name']
@@ -114,16 +109,16 @@ def fetch_and_trim_audio():
                 print(f"خطأ في القناة: {e}")
                 
     if not selected_video:
-        raise Exception("لم أجد فيديوهات جديدة مناسبة! (ربما كل المتبقي أذكار أو استخدمت سابقاً)")
+        raise Exception("لم أجد فيديوهات جديدة مناسبة في أي من القنوات!")
 
     vid_id = selected_video['id']
     video_title = selected_video['title']
     video_url = f"https://www.youtube.com/watch?v={vid_id}"
     print(f"تم اختيار: {video_title} (القارئ: {selected_reciter})")
     
-    # تحميل الصوت
+    # 3. إعدادات التحميل الفعلي
     ydl_opts_dl = {
-        'format': 'bestaudio/best',
+        'format': 'ba/b',
         'outtmpl': 'raw_audio.%(ext)s',
         'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3'}],
         'quiet': True,
@@ -135,8 +130,8 @@ def fetch_and_trim_audio():
         ydl_dl.download([video_url])
         print("🎉 تم تحميل الصوت بنجاح!")
 
-    # حماية السيرفر: قص أول دقيقة من الفيديوهات الطويلة فوراً
-    print("جاري القص المسبق لحماية السيرفر من الانهيار...")
+    # حماية السيرفر من الملفات الطويلة (القص المسبق)
+    print("جاري القص المسبق لحماية السيرفر...")
     full_audio = AudioFileClip("raw_audio.mp3")
     short_audio_duration = min(60.0, full_audio.duration)
     short_audio = full_audio.subclip(0, short_audio_duration)
@@ -144,8 +139,8 @@ def fetch_and_trim_audio():
     full_audio.close()
     short_audio.close()
 
-    # تحليل الصوت بالذكاء الاصطناعي
-    print("جاري تحليل الصوت بالذكاء الاصطناعي (Whisper)...")
+    # تحليل الصوت
+    print("جاري تحليل الصوت بالذكاء الاصطناعي...")
     model = WhisperModel("tiny", device="cpu", compute_type="int8")
     segments, info = model.transcribe("short_audio.mp3", beam_size=5)
     
