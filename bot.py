@@ -171,6 +171,7 @@ def publish_to_instagram():
 
 # ================= التشغيل الرئيسي =================
 if __name__ == "__main__":
+    import sys # استدعاء مكتبة النظام
     try:
         duration, title, vid_id = fetch_and_trim_audio()
         render_cinematic_video(duration)
@@ -182,5 +183,11 @@ if __name__ == "__main__":
         save_history(history)
         
         send_telegram_alert(f"✅ *تم النشر بنجاح!*\nالمقطع: {title}")
+        print("تم إنهاء العملية بنجاح كامل!")
+        
     except Exception as e:
+        error_details = traceback.format_exc()
+        print(f"\n❌ حدث خطأ فادح:\n{error_details}")
         send_telegram_alert(f"⚠️ *خطأ:* `{str(e)}`")
+        # هذا السطر هو الأهم: يجبر جيتهاب على إظهار الخطأ باللون الأحمر
+        sys.exit(1) 
