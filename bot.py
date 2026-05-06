@@ -50,11 +50,10 @@ def load_history():
 def save_history(history):
     with open(HISTORY_FILE, "w") as f: json.dump(history, f)
 
-# ================= 2. تحميل الصوت (محمي بدرع VPN ومتعدد القنوات) =================
+# ================= 2. تحميل الصوت (عبر Piped API) =================
 def fetch_and_trim_audio():
     history = load_history()
     
-    # خيارات الكشاف للبحث عن المقاطع فقط
     ydl_opts_flat = {
         'quiet': True,
         'extract_flat': True,
@@ -62,8 +61,6 @@ def fetch_and_trim_audio():
     
     selected_video = None
     selected_reciter = ""
-    
-    # خلط القنوات عشوائياً لكي لا يسحب من قناة واحدة دائماً
     random.shuffle(CHANNELS)
     
     with YoutubeDL(ydl_opts_flat) as ydl:
@@ -76,7 +73,6 @@ def fetch_and_trim_audio():
                 for entry in entries:
                     vid_id = entry.get('id', '')
                     title = entry.get('title', '')
-                    # الشرط الذهبي للاختيار
                     if len(vid_id) == 11 and vid_id not in history['used_videos'] and not any(x in title for x in ['رقية', 'دعاء', 'بث', 'مباشر']):
                         selected_video = entry
                         selected_reciter = channel['name']
@@ -85,29 +81,46 @@ def fetch_and_trim_audio():
                 print(f"حدث خطأ أثناء فحص قناة {channel['name']}: {e}")
                 
             if selected_video:
-                break # إذا وجد فيديو مناسب، يخرج من حلقة البحث
+                break
                 
     if not selected_video:
-        raise Exception("لم أجد فيديوهات جديدة في أي من القنوات! تأكد من أن الذاكرة ليست ممتلئة.")
+        raise Exception("لم أجد فيديوهات جديدة في أي من القنوات!")
 
     vid_id = selected_video['id']
     video_title = selected_video['title']
-    video_url = f"https://www.youtube.com/watch?v={vid_id}"
     print(f"تم اختيار: {video_title} (القارئ: {selected_reciter} - ID: {vid_id})")
     
-    # خيارات التحميل مع الدرع
-    ydl_opts_download = {
-        'format': 'bestaudio/best',
-        'outtmpl': 'raw_audio.%(ext)s',
-        'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3'}],
-        'quiet': True,
-        'source_address': '0.0.0.0'
-    }
+    print("جاري سحب الصوت عبر سيرفرات Piped الخارجية...")
+    piped_instances = [
+        "https://pipedapi.kavin.rocks",
+        "https://pipedapi.in.projectsegfau.lt",
+        "https://pipedapi.us.projectsegfau.lt",
+        "https://piped-api.garudalinux.org"
+    ]
     
-    print("جاري سحب الصوت (تحت حماية Cloudflare WARP VPN)...")
-    with YoutubeDL(ydl_opts_download) as ydl_dl:
-        ydl_dl.download([video_url])
-        print("🎉 تم سحب الصوت بنجاح!")
+    downloaded = False
+    for instance in piped_instances:
+        try:
+            print(f"محاولة السحب من: {instance}")
+            res = requests.get(f"{instance}/streams/{vid_id}", timeout=20)
+            
+            if res.status_code == 200:
+                data = res.json()
+                audio_streams = data.get('audioStreams', [])
+                if audio_streams:
+                    audio_url = audio_streams[0]['url']
+                    print("✅ تم استخراج الرابط المباشر من السيرفر! جاري التحميل...")
+                    audio_data = requests.get(audio_url, timeout=60).content
+                    with open("raw_audio.mp3", "wb") as f:
+                        f.write(audio_data)
+                    downloaded = True
+                    print("🎉 تم تحميل الصوت بنجاح!")
+                    break
+        except Exception as e:
+            print(f"❌ فشل السيرفر {instance}، جاري تجربة غيره...")
+            
+    if not downloaded:
+        raise Exception("فشلت سيرفرات Piped البديلة في التحميل!")
             
     print("جاري تحليل الصوت بالذكاء الاصطناعي...")
     model = WhisperModel("tiny", device="cpu", compute_type="int8")
@@ -159,7 +172,7 @@ def fetch_pexels_videos(target_duration):
             break
     return video_files
 
-# ================= 4. المونتاج السينمائي الذكي =================
+# ================= 4. المونتاج السينمائي =================
 def render_cinematic_video(audio_duration, reciter_name):
     clips = fetch_pexels_videos(audio_duration)
     final_video = concatenate_videoclips(clips, method="compose", padding=-1)
@@ -170,7 +183,6 @@ def render_cinematic_video(audio_duration, reciter_name):
     txt_main = TextClip("عافية قلب", font="taj.ttf", fontsize=80, color='white', stroke_color='black', stroke_width=2)
     txt_main = txt_main.set_position('center').set_duration(audio_duration).crossfadein(1)
     
-    # كتابة اسم القارئ ديناميكياً بناءً على القناة التي تم الاختيار منها
     txt_sub = TextClip(f"القارئ: {reciter_name}", font="taj.ttf", fontsize=40, color='white')
     txt_sub = txt_sub.set_position(('center', final_video.h/2 + 100)).set_duration(audio_duration)
     
@@ -194,7 +206,6 @@ def publish_to_instagram(reciter_name):
     ig_user_id = get_ig_account_id()
     today = datetime.now().strftime("%A")
     
-    # وصف ذكي يتغير فيه اسم القارئ
     if today == 'Thursday':
         caption = "✨ سورة الكهف نور ما بين الجمعتين. لا تنسوا السنن والصلاة على النبي ﷺ. #سورة_الكهف #يوم_الجمعة #قرآن #تلاوة #عافية_قلب"
     else:
@@ -205,26 +216,20 @@ def publish_to_instagram(reciter_name):
     creation_id = requests.post(media_url, data=payload).json()['id']
     
     time.sleep(35)
-    
     publish_url = f"https://graph.facebook.com/v18.0/{ig_user_id}/media_publish"
     requests.post(publish_url, data={'creation_id': creation_id, 'access_token': INSTA_TOKEN})
 
 # ================= التشغيل الرئيسي =================
 if __name__ == "__main__":
     try:
-        # 1. المونتاج والصوت
         duration, title, vid_id, reciter = fetch_and_trim_audio()
         render_cinematic_video(duration, reciter)
-        
-        # 2. النشر (وإرسال اسم القارئ للوصف)
         publish_to_instagram(reciter)
         
-        # 3. تحديث الذاكرة
         history = load_history()
         history['used_videos'].append(vid_id)
         save_history(history)
         
-        # 4. إرسال البشارة
         success_message = f"✅ *بشارة من استوديو القرآن*\n\nتم إنتاج ونشر فيديو جديد بنجاح! 🎉\n\n*القارئ:* {reciter}\n*المقطع:* {title}\n*المدة:* {int(duration)} ثانية"
         send_telegram_alert(success_message)
         print("تم إنهاء العملية بنجاح كامل!")
@@ -234,4 +239,4 @@ if __name__ == "__main__":
         print(f"\n❌ حدث خطأ فادح:\n{error_details}")
         error_message = f"⚠️ *تنبيه طارئ من استوديو القرآن*\n\nتوقف البوت عن العمل بسبب الخطأ التالي:\n\n`{str(e)}`\n\nيرجى الدخول لسيرفر GitHub للتحقق."
         send_telegram_alert(error_message)
-        sys.exit(1) # لكي تظهر العلامة الحمراء في جيتهاب إذا فشل
+        sys.exit(1)
