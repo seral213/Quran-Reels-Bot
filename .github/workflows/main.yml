@@ -18,15 +18,16 @@ jobs:
       with:
         python-version: '3.10'
 
-    - name: تثبيت مكتبات المونتاج الأساسية (نسخة سريعة)
+    - name: تثبيت مكتبات المونتاج (ومحرك حل الألغاز Node.js)
       run: |
         sudo apt-get update
-        # أضفنا --no-install-recommends لتجنب تحميل حزم ثقيلة مثل pocketsphinx
-        sudo apt-get install ffmpeg imagemagick --no-install-recommends -y
+        sudo apt-get install ffmpeg imagemagick nodejs --no-install-recommends -y
         sudo sed -i 's/none/read,write/g' /etc/ImageMagick-6/policy.xml
 
-    - name: تثبيت مكتبات بايثون
-      run: pip install -r requirements.txt
+    - name: تثبيت مكتبات بايثون (النسخة الليلية الأحدث لـ yt-dlp)
+      run: |
+        pip install -r requirements.txt
+        pip install -U --pre yt-dlp
 
     - name: تشغيل استوديو المونتاج والنشر
       env:
