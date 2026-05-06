@@ -50,16 +50,18 @@ def save_history(history):
 
 # ================= 2. تحميل الصوت والقص بالذكاء الاصطناعي =================
 # ================= 2. تحميل الصوت والقص بالذكاء الاصطناعي =================
+# ================= 2. تحميل الصوت والقص بالذكاء الاصطناعي =================
 def fetch_and_trim_audio():
     history = load_history()
     
-    # خيارات تحميل الصوت من يوتيوب
+    # خيارات تحميل الصوت من يوتيوب (مع التنكر كجهاز أندرويد لتجاوز الحظر)
     ydl_opts = {
         'format': 'bestaudio/best',
         'outtmpl': 'raw_audio.%(ext)s',
         'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3'}],
         'quiet': True,
-        'extract_flat': True
+        'extract_flat': True,
+        'extractor_args': {'youtube': ['player_client=android']} # السطر السحري لتجاوز الحظر
     }
     
     with YoutubeDL(ydl_opts) as ydl:
@@ -80,6 +82,7 @@ def fetch_and_trim_audio():
             raise Exception("لم أجد فيديوهات جديدة في القناة!")
 
         print(f"تم اختيار: {selected_video['title']}")
+        
         # تحميل المقطع المختار
         ydl_opts['extract_flat'] = False
         with YoutubeDL(ydl_opts) as ydl_dl:
@@ -113,6 +116,7 @@ def fetch_and_trim_audio():
     history['used_videos'].append(selected_video['id'])
     save_history(history)
     return end_time
+
 
 
 # ================= 3. جلب فيديوهات الطبيعة (متعددة) =================
