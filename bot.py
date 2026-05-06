@@ -47,7 +47,6 @@ def save_history(history):
 def fetch_and_trim_audio():
     history = load_history()
     
-    # الإعدادات مع إجبار السيرفر على استخدام IPv4 لزيادة التخفي
     ydl_opts = {
         'format': 'bestaudio/best',
         'outtmpl': 'raw_audio.%(ext)s',
@@ -63,10 +62,10 @@ def fetch_and_trim_audio():
         entries = info['entries']
         
         selected_video = None
-                for entry in entries:
+        for entry in entries:
             vid_id = entry.get('id', '')
             title = entry.get('title', '')
-            # أضفنا شرط (len(vid_id) == 11) للتأكد أنه فيديو حقيقي وليس قناة أو قائمة تشغيل
+            # الشرط الذهبي: طول المعرف 11 حرفاً لتجنب القنوات وقوائم التشغيل
             if len(vid_id) == 11 and vid_id not in history['used_videos'] and not any(x in title for x in ['رقية', 'ساعة', 'دعاء', 'بث', 'مباشر']):
                 selected_video = entry
                 break
@@ -218,7 +217,6 @@ if __name__ == "__main__":
         render_cinematic_video(duration)
         publish_to_instagram()
         
-        # البشارة في تليجرام
         success_message = f"✅ *بشارة من استوديو القرآن*\n\nتم إنتاج ونشر فيديو جديد بنجاح في إنستجرام! 🎉\n\n*المقطع:* {title}\n*المدة:* {int(duration)} ثانية"
         send_telegram_alert(success_message)
         
