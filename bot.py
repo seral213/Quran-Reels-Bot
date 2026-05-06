@@ -63,10 +63,11 @@ def fetch_and_trim_audio():
         entries = info['entries']
         
         selected_video = None
-        for entry in entries:
-            vid_id = entry['id']
+                for entry in entries:
+            vid_id = entry.get('id', '')
             title = entry.get('title', '')
-            if vid_id not in history['used_videos'] and not any(x in title for x in ['رقية', 'ساعة', 'دعاء']):
+            # أضفنا شرط (len(vid_id) == 11) للتأكد أنه فيديو حقيقي وليس قناة أو قائمة تشغيل
+            if len(vid_id) == 11 and vid_id not in history['used_videos'] and not any(x in title for x in ['رقية', 'ساعة', 'دعاء', 'بث', 'مباشر']):
                 selected_video = entry
                 break
                 
