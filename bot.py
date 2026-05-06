@@ -58,7 +58,7 @@ def setup_cookies():
         return "cookies.txt"
     return None
 
-# ================= 2. بروتوكول السرب (التحميل الموزع) =================
+# ================= 2. بروتوكول السرب (الهجوم الشامل) =================
 def fetch_and_trim_audio():
     history = load_history()
     cookie_file = setup_cookies()
@@ -108,36 +108,56 @@ def fetch_and_trim_audio():
     print(f"تم اختيار: {video_title} (القارئ: {selected_reciter})")
     
     downloaded = False
-    print("\n🚀 تفعيل بروتوكول السرب (بمهلة 5 دقائق للمقاطع الطويلة)...")
+    print("\n🚀 تفعيل بروتوكول السرب الشامل...")
     
-    # 1. هجوم سرب Cobalt
-    print("1️⃣ جاري استدعاء أسطول Cobalt...")
-    try:
-        cobalt_req = requests.get("https://instances.hyper.lol/instances.json", timeout=15).json()
-        cobalt_urls = [inst['url'] for inst in cobalt_req if inst.get('api_online')]
-        random.shuffle(cobalt_urls)
-        headers = {"Accept": "application/json", "Content-Type": "application/json"}
-        payload = {"url": video_url, "isAudioOnly": True, "downloadMode": "audio", "aFormat": "mp3"}
+    # --- الهجوم الأول (التخفي المتقدم بمتصفح Chrome عبر curl-cffi) ---
+    print("1️⃣ المحاولة 1: جاري السحب بتخفي كامل (Impersonate Chrome)...")
+    ydl_opts_dl = {
+        'format': 'ba/b/18', # طلب الصوت، وإذا كان محجوباً نسحب الفيديو (صيغة 18) للتمويه
+        'outtmpl': 'raw_audio.%(ext)s',
+        'quiet': True,
+        'impersonate': 'chrome', # السلاح المدمر الذي سقط سهواً
+        'extractor_args': {'youtube': ['player_client=android']},
+    }
+    if cookie_file: ydl_opts_dl['cookiefile'] = cookie_file
         
-        for api in cobalt_urls[:10]:
-            try:
-                res = requests.post(f"{api}/", json=payload, headers=headers, timeout=20)
-                if res.status_code in [200, 202]:
-                    dl_url = res.json().get('url')
-                    if dl_url:
-                        audio_data = requests.get(dl_url, timeout=300).content 
-                        if len(audio_data) > 50000:
-                            with open("raw_audio.mp3", "wb") as f: f.write(audio_data)
-                            downloaded = True
-                            print(f"🎉 تم التحميل بنجاح عبر Cobalt!")
-                            break
-            except Exception: continue
-            if downloaded: break
-    except Exception: print("تجاوز سرب Cobalt...")
+    try:
+        with YoutubeDL(ydl_opts_dl) as ydl_dl:
+            ydl_dl.download([video_url])
+            downloaded = True
+            print("🎉 تم التحميل بنجاح عبر التخفي (yt-dlp)!")
+    except Exception as e:
+        print(f"❌ فشل الهجوم المحلي: {e}")
 
-    # 2. غارة Loader
+    # --- الهجوم الثاني (أسطول Cobalt) ---
     if not downloaded:
-        print("2️⃣ جاري تفعيل غارة Loader السحابية...")
+        print("2️⃣ جاري استدعاء أسطول Cobalt...")
+        try:
+            cobalt_req = requests.get("https://instances.hyper.lol/instances.json", timeout=15).json()
+            cobalt_urls = [inst['url'] for inst in cobalt_req if inst.get('api_online')]
+            random.shuffle(cobalt_urls)
+            headers = {"Accept": "application/json", "Content-Type": "application/json"}
+            payload = {"url": video_url, "isAudioOnly": True, "downloadMode": "audio", "aFormat": "mp3"}
+            
+            for api in cobalt_urls[:10]:
+                try:
+                    res = requests.post(f"{api}/", json=payload, headers=headers, timeout=20)
+                    if res.status_code in [200, 202]:
+                        dl_url = res.json().get('url')
+                        if dl_url:
+                            audio_data = requests.get(dl_url, timeout=300).content 
+                            if len(audio_data) > 50000:
+                                with open("raw_audio.mp3", "wb") as f: f.write(audio_data)
+                                downloaded = True
+                                print(f"🎉 تم التحميل بنجاح عبر Cobalt!")
+                                break
+                except Exception: continue
+                if downloaded: break
+        except Exception: print("تجاوز سرب Cobalt...")
+
+    # --- الهجوم الثالث (غارة Loader السحابية طويلة النفس) ---
+    if not downloaded:
+        print("3️⃣ جاري تفعيل غارة Loader السحابية...")
         try:
             res = requests.get(f"https://loader.to/ajax/download.php?format=mp3&url={video_url}", timeout=20).json()
             job_id = res.get("id")
@@ -156,28 +176,12 @@ def fetch_and_trim_audio():
                             break
         except Exception: print("فشل Loader في الوقت المحدد...")
 
-    # 3. هجوم yt-dlp المحلي
     if not downloaded:
-        print("3️⃣ محاولة الاختراق المباشر عبر yt-dlp (تنكر Smart TV)...")
-        ydl_opts_dl = {
-            'format': 'm4a/bestaudio/best',
-            'outtmpl': 'raw_audio.%(ext)s',
-            'quiet': True,
-            'extractor_args': {'youtube': ['player_client=tv']},
-        }
-        if cookie_file: ydl_opts_dl['cookiefile'] = cookie_file
-        try:
-            with YoutubeDL(ydl_opts_dl) as ydl_dl:
-                ydl_dl.download([video_url])
-                downloaded = True
-                print("🎉 تم التحميل بنجاح محلياً!")
-        except Exception as e: print(f"فشل المحلي: {e}")
+        raise Exception("جميع الأسراب السحابية والمحلية فشلت! الحظر اليوم جنوني.")
 
-    if not downloaded:
-        raise Exception("جميع خطوط الهجوم استسلمت! السورة قد تكون محمية جغرافياً أو ضخمة جداً.")
-
+    # ---------------- القص والذكاء الاصطناعي ----------------
     print("\n✂️ جاري القص المسبق لحماية السيرفر من الانهيار...")
-    full_audio = AudioFileClip("raw_audio.mp3")
+    full_audio = AudioFileClip("raw_audio.mp3") # Moviepy يتعامل مع الصوت والفيديو بنفس الطريقة هنا
     short_audio_duration = min(60.0, full_audio.duration)
     short_audio = full_audio.subclip(0, short_audio_duration)
     short_audio.write_audiofile("short_audio.mp3", logger=None)
@@ -203,6 +207,10 @@ def fetch_and_trim_audio():
     final_audio = AudioFileClip("short_audio.mp3").subclip(0, end_time).audio_fadeout(2)
     final_audio.write_audiofile("final_audio.mp3", logger=None)
     final_audio.close()
+    
+    # مسح الملف الخام بعد الانتهاء
+    try: os.remove("raw_audio.mp3")
+    except: pass
     
     return end_time, video_title, vid_id, selected_reciter
 
