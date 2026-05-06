@@ -50,19 +50,7 @@ def load_history():
 def save_history(history):
     with open(HISTORY_FILE, "w") as f: json.dump(history, f)
 
-# ================= دالة جلب الأقنعة (البروكسيات) =================
-def get_free_proxies():
-    print("جاري جلب آلاف عناوين IP من حول العالم للتمويه...")
-    try:
-        # مصدر متجدد للبروكسيات المجانية
-        res = requests.get("https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt", timeout=10)
-        proxies = [p.strip() for p in res.text.split('\n') if p.strip()]
-        return proxies
-    except Exception as e:
-        print(f"حدث خطأ في جلب الأقنعة: {e}")
-        return []
-
-# ================= 2. تحميل الصوت (بنظام التخفي وتغيير الـ IP) =================
+# ================= 2. تحميل الصوت مع إدارة الـ VPN الذكية =================
 def fetch_and_trim_audio():
     history = load_history()
     
@@ -103,52 +91,37 @@ def fetch_and_trim_audio():
     video_url = f"https://www.youtube.com/watch?v={vid_id}"
     print(f"تم اختيار: {video_title} (القارئ: {selected_reciter} - ID: {vid_id})")
     
-    print("جاري سحب الصوت متجاوزاً الحظر عبر تقنية (تغيير الـ IP الديناميكي)...")
-    proxies = get_free_proxies()
-    random.shuffle(proxies)
-    proxies.insert(0, None) # المحاولة الأولى تكون مباشرة بدون قناع تحسباً لرفع الحظر
+    # تحميل المقطع تحت حماية الـ VPN
+    print("جاري سحب الصوت (تحت حماية Cloudflare WARP VPN)...")
+    ydl_opts_dl = {
+        'format': 'bestaudio/best',
+        'outtmpl': 'raw_audio.%(ext)s',
+        'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3'}],
+        'quiet': True,
+        'source_address': '0.0.0.0'
+    }
     
-    downloaded = False
-    for proxy in proxies[:30]: # البوت سيجرب حتى 30 قناعاً مختلفاً
-        if proxy:
-            print(f"محاولة السحب متخفياً عبر IP: {proxy}")
-        else:
-            print("محاولة السحب بالاتصال المباشر...")
-            
-        ydl_opts_dl = {
-            'format': 'bestaudio/best',
-            'outtmpl': 'raw_audio.%(ext)s',
-            'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3'}],
-            'quiet': True,
-            'nocheckcertificate': True,
-            'socket_timeout': 15, # إذا كان القناع بطيئاً يتجاوزه فوراً
-            'extractor_args': {'youtube': ['player_client=android']}, # التنكر كجهاز أندرويد
-        }
-        
-        if proxy:
-            ydl_opts_dl['proxy'] = f"http://{proxy}"
-            
-        try:
-            with YoutubeDL(ydl_opts_dl) as ydl_dl:
-                ydl_dl.download([video_url])
-                downloaded = True
-                print("🎉 تم كسر الحماية وتحميل الصوت بنجاح!")
-                break
-        except Exception as e:
-            print("❌ اكتشف يوتيوب البوت أو القناع بطيء، جاري تبديل القناع...")
-            
-    if not downloaded:
-        raise Exception("فشلت جميع الـ 30 محاولة للتخفي! يوتيوب في حالة دفاع قصوى.")
+    with YoutubeDL(ydl_opts_dl) as ydl_dl:
+        ydl_dl.download([video_url])
+        print("🎉 تم سحب الصوت بنجاح بفضل الدرع!")
+    
+    # ================= فكرتك العبقرية: إطفاء الـ VPN =================
+    print("جاري إيقاف الـ VPN للعودة للشبكة الطبيعية (لتشغيل تليجرام وإنستجرام)...")
+    try:
+        os.system("warp-cli disconnect")
+        print("✅ تم إطفاء الـ VPN بنجاح.")
+    except Exception as e:
+        print(f"⚠️ ملاحظة أثناء محاولة إطفاء الـ VPN: {e}")
+    # ==============================================================
 
-    # ================= القص المسبق لحماية السيرفر =================
-    print("جاري قص أول 60 ثانية لحماية السيرفر من الانهيار...")
+    # القص المسبق لحماية السيرفر من الانهيار (في حال كانت السورة طويلة جداً)
+    print("جاري قص أول 60 ثانية من الملف لتسريع التحليل وتجنب انهيار السيرفر...")
     full_audio = AudioFileClip("raw_audio.mp3")
     short_audio_duration = min(60.0, full_audio.duration)
     short_audio = full_audio.subclip(0, short_audio_duration)
     short_audio.write_audiofile("short_audio.mp3", logger=None)
     full_audio.close()
     short_audio.close()
-    # ==============================================================
 
     print("جاري تحليل الصوت بالذكاء الاصطناعي...")
     model = WhisperModel("tiny", device="cpu", compute_type="int8")
@@ -266,6 +239,11 @@ if __name__ == "__main__":
     except Exception as e:
         error_details = traceback.format_exc()
         print(f"\n❌ حدث خطأ فادح:\n{error_details}")
+        
+        # محاولة إطفاء الـ VPN حتى لو حدث خطأ لضمان وصول رسالة تليجرام
+        try: os.system("warp-cli disconnect")
+        except: pass
+        
         error_message = f"⚠️ *تنبيه طارئ من استوديو القرآن*\n\nتوقف البوت عن العمل بسبب الخطأ التالي:\n\n`{str(e)}`\n\nيرجى الدخول لسيرفر GitHub للتحقق."
         send_telegram_alert(error_message)
         sys.exit(1)
