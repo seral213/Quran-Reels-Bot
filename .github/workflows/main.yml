@@ -27,6 +27,11 @@ jobs:
     - name: تثبيت مكتبات بايثون
       run: pip install -r requirements.txt
 
+    - name: تشغيل درع الحماية (Cloudflare WARP VPN) للتحميل
+      uses: fscarmen/warp-on-actions@v1.2
+      with:
+        stack: ipv4
+
     - name: تشغيل استوديو المونتاج والنشر
       env:
         PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
