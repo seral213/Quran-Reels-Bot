@@ -1,0 +1,45 @@
+name: Quran Reels Auto Publisher
+
+on:
+  schedule:
+    # التوقيت العالمي 15:00 يعادل بالضبط الساعة 6:00 مساءً بتوقيت اليمن
+    - cron: '0 15 * * *' 
+  workflow_dispatch: # هذا السطر يسمح لك بالتشغيل اليدوي متى أردت
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: سحب الملفات
+      uses: actions/checkout@v3
+
+    - name: تجهيز لغة بايثون
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+
+    - name: تثبيت مكتبات المونتاج الأساسية
+      run: |
+        sudo apt-get update
+        sudo apt-get install ffmpeg imagemagick -y
+        sudo sed -i 's/none/read,write/g' /etc/ImageMagick-6/policy.xml
+
+    - name: تثبيت مكتبات بايثون
+      run: pip install -r requirements.txt
+
+    - name: تشغيل استوديو المونتاج والنشر
+      env:
+        PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+        INSTA_TOKEN: ${{ secrets.INSTA_TOKEN }}
+        ERROR_BOT_TOKEN: ${{ secrets.ERROR_BOT_TOKEN }}
+        ADMIN_CHAT_ID: ${{ secrets.ADMIN_CHAT_ID }}
+      run: python bot.py
+
+    - name: حفظ الذاكرة (تحديث ملف history.json)
+      run: |
+        git config --global user.name "QuranBot"
+        git config --global user.email "bot@example.com"
+        git add history.json
+        git commit -m "تحديث الذاكرة اليومية" || echo "لا يوجد تحديث جديد"
+        git push
