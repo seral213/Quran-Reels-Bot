@@ -59,15 +59,15 @@ def setup_cookies():
         return "cookies.txt"
     return None
 
-# ================= 2. تحميل الصوت =================
+# ================= 2. تحميل الفيديو واستخراج الصوت =================
 def fetch_and_trim_audio():
     history = load_history()
     cookie_file = setup_cookies()
     
+    # 1. إعدادات البحث
     ydl_opts_flat = {
         'quiet': True,
         'extract_flat': True,
-        'extractor_args': {'youtube': ['player_client=android']},
     }
     if cookie_file:
         ydl_opts_flat['cookiefile'] = cookie_file
@@ -114,29 +114,34 @@ def fetch_and_trim_audio():
     video_url = f"https://www.youtube.com/watch?v={vid_id}"
     print(f"تم اختيار: {video_title} (القارئ: {selected_reciter})")
     
-    # التحميل الفعلي
+    # 2. إعدادات التحميل (السلاح السري: نحمل الفيديو بدلاً من الصوت للتهرب من الحظر)
     ydl_opts_dl = {
-        'format': 'ba/b',
-        'outtmpl': 'raw_audio.%(ext)s',
-        'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3'}],
+        'format': '18/best', # صيغة 18 هي MP4 بجودة 360p (دائماً متاحة ولا يتم حجبها)
+        'outtmpl': 'raw_media.%(ext)s',
         'quiet': True,
-        'extractor_args': {'youtube': ['player_client=android']}, # توحيد الهوية كأندرويد فقط
     }
     if cookie_file:
         ydl_opts_dl['cookiefile'] = cookie_file
         
+    print("جاري سحب الملف من يوتيوب (بصيغة فيديو للتمويه)...")
     with YoutubeDL(ydl_opts_dl) as ydl_dl:
-        ydl_dl.download([video_url])
-        print("🎉 تم حل اللغز وتحميل الصوت بنجاح!")
+        info_dict = ydl_dl.extract_info(video_url, download=True)
+        downloaded_file = ydl_dl.prepare_filename(info_dict)
+        print("🎉 تم تحميل الملف بنجاح وتجاوز حجب الصوتيات!")
 
-    print("جاري القص المسبق لحماية السيرفر...")
-    full_audio = AudioFileClip("raw_audio.mp3")
-    short_audio_duration = min(60.0, full_audio.duration)
-    short_audio = full_audio.subclip(0, short_audio_duration)
+    # 3. استخراج الصوت وقصه
+    print("جاري سلخ الصوت من الفيديو وقص أول 60 ثانية لحماية السيرفر...")
+    full_media = AudioFileClip(downloaded_file) # يفتح الفيديو كأنه ملف صوتي
+    short_audio_duration = min(60.0, full_media.duration)
+    short_audio = full_media.subclip(0, short_audio_duration)
     short_audio.write_audiofile("short_audio.mp3", logger=None)
-    full_audio.close()
-    short_audio.close()
+    full_media.close()
+    
+    # مسح الفيديو الأساسي لتوفير مساحة في السيرفر
+    if os.path.exists(downloaded_file):
+        os.remove(downloaded_file)
 
+    # 4. تحليل الصوت
     print("جاري تحليل الصوت بالذكاء الاصطناعي...")
     model = WhisperModel("tiny", device="cpu", compute_type="int8")
     segments, info = model.transcribe("short_audio.mp3", beam_size=5)
@@ -256,4 +261,3 @@ if __name__ == "__main__":
         error_message = f"⚠️ *تنبيه طارئ من استوديو القرآن*\n\nتوقف البوت عن العمل بسبب الخطأ التالي:\n\n`{str(e)}`\n\nيرجى الدخول لسيرفر GitHub للتحقق."
         send_telegram_alert(error_message)
         sys.exit(1)
-
