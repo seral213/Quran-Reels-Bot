@@ -7,7 +7,6 @@ from datetime import datetime
 from yt_dlp import YoutubeDL
 from faster_whisper import WhisperModel
 from moviepy.editor import VideoFileClip, AudioFileClip, concatenate_videoclips, TextClip, CompositeVideoClip, ColorClip
-from pytubefix import YouTube # <-- السلاح الجديد
 
 # ================= الإعدادات والمفاتيح =================
 PEXELS_API_KEY = os.environ.get("PEXELS_API_KEY")
@@ -17,20 +16,19 @@ ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID")
 YOUTUBE_URL = "https://www.youtube.com/@abdullahshaab1"
 HISTORY_FILE = "history.json"
 
-# ================= 0. نظام إشعارات الأخطاء =================
-def send_error_to_telegram(error_message):
+# ================= 0. نظام إشعارات تليجرام (نجاح + أخطاء) =================
+def send_telegram_alert(message):
     if not ERROR_BOT_TOKEN or not ADMIN_CHAT_ID:
-        print("تنبيه: لم يتم العثور على مفاتيح تليجرام لإرسال الخطأ.")
+        print("تنبيه: لم يتم العثور على مفاتيح تليجرام لإرسال الإشعار.")
         return
     
     url = f"https://api.telegram.org/bot{ERROR_BOT_TOKEN}/sendMessage"
-    msg = f"⚠️ *تنبيه طارئ من استوديو القرآن*\n\nتوقف البوت عن العمل بسبب الخطأ التالي:\n\n`{error_message}`\n\nيرجى الدخول لسيرفر GitHub للتحقق والتحديث."
-    payload = {"chat_id": ADMIN_CHAT_ID, "text": msg, "parse_mode": "Markdown"}
+    payload = {"chat_id": ADMIN_CHAT_ID, "text": message, "parse_mode": "Markdown"}
     try:
         requests.post(url, data=payload)
-        print("تم إرسال إشعار الخطأ إلى تليجرام بنجاح.")
+        print("تم إرسال الإشعار إلى تليجرام.")
     except Exception as e:
-        print(f"فشل إرسال إشعار الخطأ لتليجرام: {e}")
+        print(f"فشل إرسال الإشعار لتليجرام: {e}")
 
 # ================= 1. نظام الذاكرة =================
 def load_history():
@@ -48,11 +46,11 @@ def load_history():
 def save_history(history):
     with open(HISTORY_FILE, "w") as f: json.dump(history, f)
 
-# ================= 2. تحميل الصوت والقص بالذكاء الاصطناعي =================
+# ================= 2. تحميل الصوت (عبر الأنفاق السرية Piped) =================
 def fetch_and_trim_audio():
     history = load_history()
     
-    # نستخدم yt-dlp فقط كـ "كشاف" لجلب أسماء الفيديوهات (هذا لا يُحظر)
+    # yt-dlp يستخدم هنا ككشاف فقط ولا يحمّل شيئاً لتجنب الحظر
     ydl_opts = {
         'quiet': True,
         'extract_flat': True,
@@ -74,21 +72,45 @@ def fetch_and_trim_audio():
         if not selected_video:
             raise Exception("لم أجد فيديوهات جديدة في القناة!")
 
-        print(f"تم اختيار: {selected_video['title']}")
         vid_id = selected_video['id']
-        video_url = f"https://www.youtube.com/watch?v={vid_id}"
+        video_title = selected_video['title']
+        print(f"تم اختيار: {video_title} (ID: {vid_id})")
         
-        # ----------------- الاختراق باستخدام pytubefix -----------------
-        print("جاري تحميل الصوت متجاوزاً الحظر (عبر Pytubefix)...")
-        try:
-            # التنكر كجهاز أندرويد حقيقي لسحب المقطع
-            yt = YouTube(video_url, client='ANDROID')
-            audio_stream = yt.streams.get_audio_only()
-            audio_stream.download(filename="raw_audio.mp3")
-            print("🎉 تم سحب الصوت بنجاح رغم أنف يوتيوب!")
-        except Exception as e:
-            print(f"تفاصيل الخطأ: {e}")
-            raise Exception("فشلت Pytubefix أيضاً، الحماية قوية جداً!")
+        # ----------------- الاختراق عبر خوادم Piped -----------------
+        print("جاري سحب الصوت عبر شبكة الخوادم اللامركزية (Piped API)...")
+        piped_instances = [
+            "https://pipedapi.kavin.rocks",
+            "https://pipedapi.in.projectsegfau.lt",
+            "https://piped-api.garudalinux.org",
+            "https://pipedapi.lunar.icu"
+        ]
+        
+        downloaded = False
+        for instance in piped_instances:
+            try:
+                print(f"محاولة السحب من: {instance}")
+                res = requests.get(f"{instance}/streams/{vid_id}", timeout=15)
+                
+                if res.status_code == 200:
+                    data = res.json()
+                    audio_streams = data.get('audioStreams', [])
+                    
+                    if audio_streams:
+                        audio_url = audio_streams[0]['url']
+                        print("✅ تم استخراج الرابط المباشر من السيرفر! جاري التحميل...")
+                        
+                        audio_data = requests.get(audio_url, timeout=60).content
+                        with open("raw_audio.mp3", "wb") as f:
+                            f.write(audio_data)
+                        
+                        downloaded = True
+                        print("🎉 تم تحميل الصوت بنجاح وتجاوز الحظر!")
+                        break
+            except Exception as e:
+                print(f"❌ فشل الاتصال بالسيرفر {instance}، جاري تجربة النفق التالي...")
+                
+        if not downloaded:
+            raise Exception("جميع خوادم Piped البديلة فشلت في جلب الصوت اليوم!")
         # -------------------------------------------------------------------------
             
     print("جاري تحليل الصوت بالذكاء الاصطناعي...")
@@ -113,9 +135,10 @@ def fetch_and_trim_audio():
     
     history['used_videos'].append(vid_id)
     save_history(history)
-    return end_time
+    
+    return end_time, video_title # إرجاع العنوان لاستخدامه في رسالة النجاح
 
-# ================= 3. جلب فيديوهات الطبيعة (متعددة) =================
+# ================= 3. جلب فيديوهات الطبيعة =================
 def fetch_pexels_videos(target_duration):
     today = datetime.now().strftime("%A")
     if today in ['Sunday', 'Tuesday', 'Thursday']:
@@ -153,7 +176,7 @@ def fetch_pexels_videos(target_duration):
 def render_cinematic_video(audio_duration):
     clips = fetch_pexels_videos(audio_duration)
     
-    print("جاري دمج الفيديوهات وإضافة الانتقالات (Crossfade)...")
+    print("جاري دمج الفيديوهات وإضافة الانتقالات...")
     final_video = concatenate_videoclips(clips, method="compose", padding=-1)
     final_video = final_video.subclip(0, audio_duration)
     
@@ -215,13 +238,23 @@ def publish_to_instagram():
         
     print(f"تم النشر بنجاح! ID: {final_res.get('id')}")
 
-# ================= التشغيل الرئيسي (مع مراقب الأخطاء) =================
+# ================= التشغيل الرئيسي =================
 if __name__ == "__main__":
     try:
-        duration = fetch_and_trim_audio()
+        # 1. المونتاج والصوت
+        duration, title = fetch_and_trim_audio()
         render_cinematic_video(duration)
+        
+        # 2. النشر
         publish_to_instagram()
+        
+        # 3. إرسال بشارة النجاح إلى تليجرام
+        success_message = f"✅ *بشارة من استوديو القرآن*\n\nتم إنتاج ونشر فيديو جديد بنجاح في إنستجرام! 🎉\n\n*المقطع:* {title}\n*المدة:* {int(duration)} ثانية"
+        send_telegram_alert(success_message)
+        
     except Exception as e:
         error_details = traceback.format_exc()
         print(f"\n❌ حدث خطأ فادح:\n{error_details}")
-        send_error_to_telegram(str(e))
+        # إرسال التنبيه في حال الفشل
+        error_message = f"⚠️ *تنبيه طارئ من استوديو القرآن*\n\nتوقف البوت عن العمل بسبب الخطأ التالي:\n\n`{str(e)}`\n\nيرجى الدخول لسيرفر GitHub للتحقق."
+        send_telegram_alert(error_message)
