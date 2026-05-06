@@ -82,7 +82,8 @@ def fetch_and_trim_audio():
         # تحميل المقطع المختار
         ydl_opts['extract_flat'] = False
         with YoutubeDL(ydl_opts) as ydl_dl:
-            ydl_dl.download([selected_video['url']])
+            video_url = selected_video.get('url') or selected_video.get('webpage_url') or f"https://www.youtube.com/watch?v={selected_video['id']}"
+ydl_dl.download([video_url])
             
     # تشغيل Whisper للذكاء الاصطناعي لتحديد نهاية الآية
     print("جاري تحليل الصوت بالذكاء الاصطناعي...")
