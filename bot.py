@@ -50,13 +50,15 @@ def load_history():
 def save_history(history):
     with open(HISTORY_FILE, "w") as f: json.dump(history, f)
 
-# ================= 2. تحميل الصوت مع إدارة الـ VPN الذكية =================
+# ================= 2. تحميل الصوت (عبر النفق المعزول SOCKS5) =================
 def fetch_and_trim_audio():
     history = load_history()
     
+    # ------------------ البحث في القنوات ------------------
     ydl_opts_flat = {
         'quiet': True,
         'extract_flat': True,
+        'proxy': 'socks5h://127.0.0.1:40000' # استخدام النفق السري
     }
     
     selected_video = None
@@ -65,7 +67,7 @@ def fetch_and_trim_audio():
     
     with YoutubeDL(ydl_opts_flat) as ydl:
         for channel in CHANNELS:
-            print(f"جاري البحث في قناة: {channel['name']}...")
+            print(f"جاري البحث متخفياً في قناة: {channel['name']}...")
             try:
                 info = ydl.extract_info(channel['url'], download=False)
                 entries = info.get('entries', [])
@@ -78,44 +80,35 @@ def fetch_and_trim_audio():
                         selected_reciter = channel['name']
                         break
             except Exception as e:
-                print(f"حدث خطأ أثناء فحص قناة {channel['name']}: {e}")
+                print(f"حدث خطأ أثناء فحص القناة: {e}")
                 
             if selected_video:
                 break
                 
     if not selected_video:
-        raise Exception("لم أجد فيديوهات جديدة في أي من القنوات!")
+        raise Exception("لم أجد فيديوهات جديدة! تأكد من القنوات أو ملف الذاكرة.")
 
     vid_id = selected_video['id']
     video_title = selected_video['title']
     video_url = f"https://www.youtube.com/watch?v={vid_id}"
     print(f"تم اختيار: {video_title} (القارئ: {selected_reciter} - ID: {vid_id})")
     
-    # تحميل المقطع تحت حماية الـ VPN
-    print("جاري سحب الصوت (تحت حماية Cloudflare WARP VPN)...")
+    # ------------------ تحميل المقطع ------------------
     ydl_opts_dl = {
         'format': 'bestaudio/best',
         'outtmpl': 'raw_audio.%(ext)s',
         'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3'}],
         'quiet': True,
-        'source_address': '0.0.0.0'
+        'proxy': 'socks5h://127.0.0.1:40000' # السطر السحري: تحميل من داخل الصندوق المعزول
     }
     
+    print("جاري سحب الصوت عبر النفق السري...")
     with YoutubeDL(ydl_opts_dl) as ydl_dl:
         ydl_dl.download([video_url])
-        print("🎉 تم سحب الصوت بنجاح بفضل الدرع!")
-    
-    # ================= فكرتك العبقرية: إطفاء الـ VPN =================
-    print("جاري إيقاف الـ VPN للعودة للشبكة الطبيعية (لتشغيل تليجرام وإنستجرام)...")
-    try:
-        os.system("warp-cli disconnect")
-        print("✅ تم إطفاء الـ VPN بنجاح.")
-    except Exception as e:
-        print(f"⚠️ ملاحظة أثناء محاولة إطفاء الـ VPN: {e}")
-    # ==============================================================
+        print("🎉 تم كسر الحماية وتحميل الصوت بنجاح!")
 
-    # القص المسبق لحماية السيرفر من الانهيار (في حال كانت السورة طويلة جداً)
-    print("جاري قص أول 60 ثانية من الملف لتسريع التحليل وتجنب انهيار السيرفر...")
+    # ------------------ القص المسبق للحماية ------------------
+    print("جاري قص أول 60 ثانية لحماية السيرفر من الانهيار...")
     full_audio = AudioFileClip("raw_audio.mp3")
     short_audio_duration = min(60.0, full_audio.duration)
     short_audio = full_audio.subclip(0, short_audio_duration)
@@ -226,6 +219,8 @@ if __name__ == "__main__":
     try:
         duration, title, vid_id, reciter = fetch_and_trim_audio()
         render_cinematic_video(duration, reciter)
+        
+        # التليجرام والإنستجرام سيعملان بكفاءة لأنهما خارج النفق!
         publish_to_instagram(reciter)
         
         history = load_history()
@@ -239,11 +234,6 @@ if __name__ == "__main__":
     except Exception as e:
         error_details = traceback.format_exc()
         print(f"\n❌ حدث خطأ فادح:\n{error_details}")
-        
-        # محاولة إطفاء الـ VPN حتى لو حدث خطأ لضمان وصول رسالة تليجرام
-        try: os.system("warp-cli disconnect")
-        except: pass
-        
         error_message = f"⚠️ *تنبيه طارئ من استوديو القرآن*\n\nتوقف البوت عن العمل بسبب الخطأ التالي:\n\n`{str(e)}`\n\nيرجى الدخول لسيرفر GitHub للتحقق."
         send_telegram_alert(error_message)
         sys.exit(1)
