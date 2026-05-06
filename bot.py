@@ -59,16 +59,16 @@ def setup_cookies():
         return "cookies.txt"
     return None
 
-# ================= 2. تحميل الصوت (مع خدعة الأندرويد) =================
+# ================= 2. تحميل الصوت (الهروب من فخ الويب) =================
 def fetch_and_trim_audio():
     history = load_history()
     cookie_file = setup_cookies()
     
-    # 1. إعدادات البحث مع خدعة الأندرويد لتجنب ألغاز يوتيوب
+    # 1. إعدادات البحث (التنكر كأيفون أو تلفاز ذكي وتجنب الويب تماماً)
     ydl_opts_flat = {
         'quiet': True,
         'extract_flat': True,
-        'extractor_args': {'youtube': ['player_client=android,web']}, # <-- السطر السحري
+        'extractor_args': {'youtube': ['player_client=ios,tv,android']},
     }
     if cookie_file:
         ydl_opts_flat['cookiefile'] = cookie_file
@@ -115,20 +115,20 @@ def fetch_and_trim_audio():
     video_url = f"https://www.youtube.com/watch?v={vid_id}"
     print(f"تم اختيار: {video_title} (القارئ: {selected_reciter})")
     
-    # 2. إعدادات التحميل الفعلي (استخراج الصوت كجوال أندرويد)
+    # 2. إعدادات التحميل (بدون أي ذكر للـ web لحماية البوت من اللغز)
     ydl_opts_dl = {
-        'format': 'bestaudio/best',
+        'format': 'm4a/bestaudio/best', # فرض صيغة صوتية صريحة
         'outtmpl': 'raw_audio.%(ext)s',
         'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3'}],
         'quiet': True,
-        'extractor_args': {'youtube': ['player_client=android,web']}, # <-- السطر السحري
+        'extractor_args': {'youtube': ['player_client=ios,tv,android']}, # السلاح السري هنا
     }
     if cookie_file:
         ydl_opts_dl['cookiefile'] = cookie_file
         
     with YoutubeDL(ydl_opts_dl) as ydl_dl:
         ydl_dl.download([video_url])
-        print("🎉 تم تحميل الصوت بنجاح بدون ألغاز الجافا سكريبت!")
+        print("🎉 تم تحميل الصوت بنجاح وتم تجاوز فخ يوتيوب!")
 
     print("جاري القص المسبق لحماية السيرفر...")
     full_audio = AudioFileClip("raw_audio.mp3")
