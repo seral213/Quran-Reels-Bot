@@ -59,10 +59,17 @@ def setup_cookies():
         return "cookies.txt"
     return None
 
-# ================= 2. تحميل الصوت (الرسمي الموثق) =================
+# ================= 2. تحميل الصوت والفلترة الصارمة =================
 def fetch_and_trim_audio():
     history = load_history()
     cookie_file = setup_cookies()
+    
+    # قائمة الكلمات المحظورة (تستبعد الأذكار والرقية فقط)
+    forbidden_keywords = [
+        'أذكار', 'اذكار', 'الصباح', 'المساء', 'النوم', 'الاستيقاظ', 
+        'رقية', 'رقيّه', 'شرعية', 'شرعيه', 'دعاء', 'أدعية', 'ادعية', 
+        'حصن المسلم', 'بث مباشر', 'مباشر الآن', 'برودكاست'
+    ]
     
     ydl_opts_flat = {
         'quiet': True,
@@ -85,25 +92,29 @@ def fetch_and_trim_audio():
                 for entry in entries:
                     vid_id = entry.get('id', '')
                     title = entry.get('title', '')
-                    if len(vid_id) == 11 and vid_id not in history['used_videos'] and not any(x in title for x in ['رقية', 'دعاء', 'بث', 'مباشر']):
+                    
+                    # فحص العنوان لاستبعاد الأذكار والرقية
+                    is_forbidden = any(word.lower() in title.lower() for word in forbidden_keywords)
+                    
+                    # الشرط: معرف فيديو صحيح + لم يستخدم + ليس أذكار/رقية
+                    if len(vid_id) == 11 and vid_id not in history['used_videos'] and not is_forbidden:
                         selected_video = entry
                         selected_reciter = channel['name']
                         break
-            except Exception as e:
-                print(f"حدث خطأ أثناء فحص قناة {channel['name']}: {e}")
                 
-            if selected_video:
-                break
+                if selected_video: break
+            except Exception as e:
+                print(f"خطأ في القناة: {e}")
                 
     if not selected_video:
-        raise Exception("لم أجد فيديوهات جديدة في أي من القنوات!")
+        raise Exception("لم أجد فيديوهات جديدة مناسبة! (ربما كل المتبقي أذكار أو استخدمت سابقاً)")
 
     vid_id = selected_video['id']
     video_title = selected_video['title']
     video_url = f"https://www.youtube.com/watch?v={vid_id}"
-    print(f"تم اختيار: {video_title} (القارئ: {selected_reciter} - ID: {vid_id})")
+    print(f"تم اختيار: {video_title} (القارئ: {selected_reciter})")
     
-    print("جاري سحب الصوت (باستخدام تصريح الكوكيز)...")
+    # تحميل الصوت
     ydl_opts_dl = {
         'format': 'bestaudio/best',
         'outtmpl': 'raw_audio.%(ext)s',
@@ -115,9 +126,10 @@ def fetch_and_trim_audio():
         
     with YoutubeDL(ydl_opts_dl) as ydl_dl:
         ydl_dl.download([video_url])
-        print("🎉 تم سحب الصوت بنجاح!")
+        print("🎉 تم تحميل الصوت بنجاح!")
 
-    print("جاري قص أول 60 ثانية لحماية السيرفر من الانهيار...")
+    # حماية السيرفر: قص أول دقيقة من الفيديوهات الطويلة فوراً
+    print("جاري القص المسبق لحماية السيرفر من الانهيار...")
     full_audio = AudioFileClip("raw_audio.mp3")
     short_audio_duration = min(60.0, full_audio.duration)
     short_audio = full_audio.subclip(0, short_audio_duration)
@@ -125,7 +137,8 @@ def fetch_and_trim_audio():
     full_audio.close()
     short_audio.close()
 
-    print("جاري تحليل الصوت بالذكاء الاصطناعي...")
+    # تحليل الصوت بالذكاء الاصطناعي
+    print("جاري تحليل الصوت بالذكاء الاصطناعي (Whisper)...")
     model = WhisperModel("tiny", device="cpu", compute_type="int8")
     segments, info = model.transcribe("short_audio.mp3", beam_size=5)
     
@@ -140,7 +153,7 @@ def fetch_and_trim_audio():
             end_time = prev_end
             break
 
-    print(f"سيتم القص النهائي للمقطع عند الثانية: {end_time}")
+    print(f"سيتم القص النهائي عند الثانية: {end_time}")
     final_audio = AudioFileClip("short_audio.mp3").subclip(0, end_time).audio_fadeout(2)
     final_audio.write_audiofile("final_audio.mp3", logger=None)
     final_audio.close()
