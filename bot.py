@@ -49,22 +49,17 @@ def save_history(history):
     with open(HISTORY_FILE, "w") as f: json.dump(history, f)
 
 # ================= 2. تحميل الصوت والقص بالذكاء الاصطناعي =================
-# ================= 2. تحميل الصوت والقص بالذكاء الاصطناعي =================
-# ================= 2. تحميل الصوت والقص بالذكاء الاصطناعي =================
-# ================= 2. تحميل الصوت والقص بالذكاء الاصطناعي =================
 def fetch_and_trim_audio():
     history = load_history()
     
+    # نستخدم yt-dlp فقط لقراءة "أسماء" الفيديوهات من القناة (هذا لا يتم حظره)
     ydl_opts = {
-        'format': 'bestaudio/best',
-        'outtmpl': 'raw_audio.%(ext)s',
-        'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3'}],
         'quiet': True,
         'extract_flat': True,
-        'extractor_args': {'youtube': ['client=ios,android,tv']} # محاولة التنكر كأجهزة مختلفة
     }
     
     with YoutubeDL(ydl_opts) as ydl:
+        print("جاري جلب قائمة الفيديوهات من القناة...")
         info = ydl.extract_info(YOUTUBE_URL, download=False)
         entries = info['entries']
         
@@ -72,6 +67,7 @@ def fetch_and_trim_audio():
         for entry in entries:
             vid_id = entry['id']
             title = entry.get('title', '')
+            # تخطي الفيديوهات المستخدمة والكلمات المستثناة
             if vid_id not in history['used_videos'] and not any(x in title for x in ['رقية', 'ساعة', 'دعاء']):
                 selected_video = entry
                 break
@@ -81,48 +77,49 @@ def fetch_and_trim_audio():
 
         print(f"تم اختيار: {selected_video['title']}")
         vid_id = selected_video['id']
-        video_url = selected_video.get('url') or selected_video.get('webpage_url') or f"https://www.youtube.com/watch?v={vid_id}"
+        video_url = f"https://www.youtube.com/watch?v={vid_id}"
         
-        # ----------------- نظام التحميل مع خطة الطوارئ (بدون كوكيز) -----------------
-        ydl_opts['extract_flat'] = False
+        # ----------------- فكرتك العبقرية: استخدام موقع تحميل خارجي -----------------
+        print("جاري إرسال الرابط لموقع التحميل الخارجي (Cobalt API)...")
+        headers = {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        }
+        
+        # إعدادات الطلب للموقع الخارجي (نطلب منه الصوت فقط بصيغة mp3)
+        payload = {
+            "url": video_url,
+            "downloadMode": "audio",
+            "aFormat": "mp3",
+            "isAudioOnly": True
+        }
+        
         try:
-            print("محاولة التحميل العادي...")
-            with YoutubeDL(ydl_opts) as ydl_dl:
-                ydl_dl.download([video_url])
+            # نرسل الرابط للموقع
+            res = requests.post("https://api.cobalt.tools/", json=payload, headers=headers)
+            
+            # إذا كان السيرفر الأساسي مشغولاً، نستخدم السيرفر البديل لنفس الموقع
+            if res.status_code != 200:
+                res = requests.post("https://co.wuk.sh/api/json", json=payload, headers=headers)
+                
+            data = res.json()
+            
+            if 'url' in data:
+                audio_url = data['url']
+                print("✅ الموقع الخارجي جهز الملف! جاري تحميل الصوت المباشر...")
+                
+                # تحميل الملف الصوتي الذي أعطانا إياه الموقع
+                audio_data = requests.get(audio_url, timeout=60).content
+                with open("raw_audio.mp3", "wb") as f:
+                    f.write(audio_data)
+                print("🎉 تم تحميل الصوت بنجاح بفضل فكرتك!")
+            else:
+                raise Exception("الموقع الخارجي لم يستطع معالجة الرابط.")
+                
         except Exception as e:
-            print("⚠️ يوتيوب يحظر السيرفر! جاري تفعيل خطة الطوارئ (التحميل عبر السيرفرات البديلة)...")
-            
-            # سيرفرات بديلة (Invidious) مفتوحة المصدر لا تطلب كوكيز
-            instances = [
-                "https://inv.tux.pizza",
-                "https://invidious.jing.rocks",
-                "https://invidious.nerdvpn.de",
-                "https://invidious.flokinet.to"
-            ]
-            downloaded = False
-            for instance in instances:
-                try:
-                    print(f"محاولة السحب من: {instance}")
-                    res = requests.get(f"{instance}/api/v1/videos/{vid_id}", timeout=15).json()
-                    audio_url = None
-                    for fmt in res.get('adaptiveFormats', []):
-                        if 'audio' in fmt.get('type', ''):
-                            audio_url = fmt['url']
-                            break
-                    
-                    if audio_url:
-                        print("✅ تم العثور على مسار الصوت! جاري التحميل...")
-                        audio_data = requests.get(audio_url, timeout=30).content
-                        with open("raw_audio.mp3", "wb") as f:
-                            f.write(audio_data)
-                        downloaded = True
-                        print("🎉 تم تحميل الصوت بنجاح متجاوزاً حظر يوتيوب!")
-                        break
-                except Exception as ex:
-                    print(f"❌ فشل السيرفر {instance}، جاري تجربة غيره...")
-            
-            if not downloaded:
-                raise Exception("فشلت جميع محاولات تخطي حظر يوتيوب عبر السيرفرات البديلة!")
+            print(f"تفاصيل الخطأ: {e}")
+            raise Exception("فشلت حيلة الموقع الخارجي، يبدو أن يوتيوب يشن حرباً اليوم!")
         # -------------------------------------------------------------------------
             
     print("جاري تحليل الصوت بالذكاء الاصطناعي...")
