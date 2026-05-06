@@ -51,7 +51,6 @@ def load_history():
 def save_history(history):
     with open(HISTORY_FILE, "w") as f: json.dump(history, f)
 
-# ================= تجهيز الكوكيز =================
 def setup_cookies():
     if YOUTUBE_COOKIES and len(YOUTUBE_COOKIES) > 10:
         with open("cookies.txt", "w") as f:
@@ -59,12 +58,11 @@ def setup_cookies():
         return "cookies.txt"
     return None
 
-# ================= 2. بروتوكول السرب (التحميل الموزع) =================
+# ================= 2. بروتوكول السرب (صاحب النفس الطويل) =================
 def fetch_and_trim_audio():
     history = load_history()
     cookie_file = setup_cookies()
     
-    # ---------------- البحث عن المقطع ----------------
     ydl_opts_flat = {
         'quiet': True,
         'extract_flat': True,
@@ -110,85 +108,67 @@ def fetch_and_trim_audio():
     print(f"تم اختيار: {video_title} (القارئ: {selected_reciter})")
     
     downloaded = False
-    print("\n🚀 تفعيل بروتوكول السرب (The Swarm Protocol)...")
+    print("\n🚀 تفعيل بروتوكول السرب (بمهلة 5 دقائق للمقاطع الطويلة)...")
     
-    # ---------------- 1. هجوم سرب Piped الديناميكي ----------------
-    print("1️⃣ جاري جلب أحدث سيرفرات Piped العاملة حالياً حول العالم...")
+    # ---------------- 1. هجوم سرب Cobalt الديناميكي ----------------
+    print("1️⃣ جاري استدعاء أسطول Cobalt...")
     try:
-        piped_req = requests.get("https://raw.githubusercontent.com/TeamPiped/Piped-Instances/main/instances.json", timeout=10).json()
-        piped_urls = [inst['api_url'] for inst in piped_req if inst.get('up')]
-        random.shuffle(piped_urls)
+        cobalt_req = requests.get("https://instances.hyper.lol/instances.json", timeout=15).json()
+        cobalt_urls = [inst['url'] for inst in cobalt_req if inst.get('api_online')]
+        random.shuffle(cobalt_urls)
         
-        for api in piped_urls[:15]: # يجرب 15 سيرفر مختلف
+        headers = {"Accept": "application/json", "Content-Type": "application/json"}
+        # تحديث Payload ليتوافق مع جميع نسخ Cobalt القديمة والحديثة
+        payload = {"url": video_url, "isAudioOnly": True, "downloadMode": "audio", "aFormat": "mp3"}
+        
+        for api in cobalt_urls[:10]:
             try:
-                res = requests.get(f"{api}/streams/{vid_id}", timeout=10)
-                if res.status_code == 200:
-                    audio_streams = res.json().get('audioStreams', [])
-                    if audio_streams:
-                        dl_url = audio_streams[0]['url']
-                        audio_data = requests.get(dl_url, timeout=60).content
-                        if len(audio_data) > 50000: # التأكد أن الملف ليس فارغاً
+                print(f"إرسال طلب التحضير إلى: {api}")
+                res = requests.post(f"{api}/", json=payload, headers=headers, timeout=20)
+                if res.status_code in [200, 202]:
+                    dl_url = res.json().get('url')
+                    if dl_url:
+                        print("✅ تم استلام مسار الملف! جاري التحميل (قد يستغرق بعض الوقت لحجمه)...")
+                        audio_data = requests.get(dl_url, timeout=300).content # مهلة 5 دقائق للتحميل
+                        if len(audio_data) > 50000:
                             with open("raw_audio.mp3", "wb") as f: f.write(audio_data)
                             downloaded = True
-                            print(f"🎉 تم التحميل بنجاح عبر سيرفر: {api}")
+                            print(f"🎉 تم التحميل بنجاح عبر Cobalt!")
                             break
-            except: continue
-    except Exception as e: print(f"تجاوز سرب Piped...")
+            except Exception as e: continue
+            if downloaded: break
+    except Exception as e: print("تجاوز سرب Cobalt...")
 
-    # ---------------- 2. هجوم سرب Cobalt الديناميكي ----------------
+    # ---------------- 2. غارة Loader السحابية (النفس الطويل) ----------------
     if not downloaded:
-        print("2️⃣ جاري جلب أحدث سيرفرات Cobalt العاملة حالياً...")
+        print("2️⃣ جاري تفعيل غارة Loader السحابية...")
         try:
-            cobalt_req = requests.get("https://instances.hyper.lol/instances.json", timeout=10).json()
-            cobalt_urls = [inst['url'] for inst in cobalt_req if inst.get('api_online')]
-            random.shuffle(cobalt_urls)
-            
-            headers = {"Accept": "application/json", "Content-Type": "application/json"}
-            payload = {"url": video_url, "isAudioOnly": True}
-            
-            for api in cobalt_urls[:15]:
-                try:
-                    res = requests.post(f"{api}/", json=payload, headers=headers, timeout=10)
-                    if res.status_code in [200, 202]:
-                        dl_url = res.json().get('url')
-                        if dl_url:
-                            audio_data = requests.get(dl_url, timeout=60).content
-                            if len(audio_data) > 50000:
-                                with open("raw_audio.mp3", "wb") as f: f.write(audio_data)
-                                downloaded = True
-                                print(f"🎉 تم التحميل بنجاح عبر سيرفر: {api}")
-                                break
-                except: continue
-        except Exception as e: print(f"تجاوز سرب Cobalt...")
+            res = requests.get(f"https://loader.to/ajax/download.php?format=mp3&url={video_url}", timeout=20).json()
+            job_id = res.get("id")
+            if job_id:
+                print("تم بدء المعالجة في السيرفر، يرجى الانتظار (المهلة القصوى 5 دقائق)...")
+                for _ in range(60): # 60 محاولة * 5 ثواني = 5 دقائق كاملة
+                    time.sleep(5)
+                    status = requests.get(f"https://loader.to/ajax/progress.php?id={job_id}", timeout=15).json()
+                    if status.get("text") == "Finished":
+                        dl_url = status.get("download_url")
+                        print("✅ الملف جاهز! جاري سحبه...")
+                        audio_data = requests.get(dl_url, timeout=300).content
+                        if len(audio_data) > 50000:
+                            with open("raw_audio.mp3", "wb") as f: f.write(audio_data)
+                            downloaded = True
+                            print("🎉 تم التحميل بنجاح عبر Loader!")
+                            break
+        except Exception: print("فشل Loader في الوقت المحدد...")
 
-    # ---------------- 3. هجوم الواجهات الآسيوية المستقلة ----------------
+    # ---------------- 3. هجوم yt-dlp المحلي (التنكر كتلفاز) ----------------
     if not downloaded:
-        print("3️⃣ استدعاء واجهات الـ API المستقلة كملاذ أخير...")
-        fallback_apis = [
-            f"https://api.vreden.my.id/api/ytmp3?url={video_url}",
-            f"https://api.siputzx.my.id/api/d/ytmp4?url={video_url}"
-        ]
-        for api in fallback_apis:
-            try:
-                res = requests.get(api, timeout=15).json()
-                dl_url = res.get('data', {}).get('dl') if isinstance(res.get('data'), dict) else res.get('url')
-                if dl_url:
-                    audio_data = requests.get(dl_url, timeout=60).content
-                    if len(audio_data) > 50000:
-                        with open("raw_audio.mp3", "wb") as f: f.write(audio_data)
-                        downloaded = True
-                        print(f"🎉 تم التحميل بنجاح عبر واجهة API مستقلة!")
-                        break
-            except: continue
-
-    # ---------------- 4. هجوم yt-dlp المحلي المدجج ----------------
-    if not downloaded:
-        print("4️⃣ محاولة الاختراق المحلي المباشر عبر yt-dlp...")
+        print("3️⃣ محاولة الاختراق المباشر عبر yt-dlp (تنكر Smart TV)...")
         ydl_opts_dl = {
-            'format': 'ba/b',
+            'format': 'm4a/bestaudio/best',
             'outtmpl': 'raw_audio.%(ext)s',
             'quiet': True,
-            'extractor_args': {'youtube': ['player_client=android_music']},
+            'extractor_args': {'youtube': ['player_client=tv']}, # التلفاز لا يُرسل له ألغاز
         }
         if cookie_file: ydl_opts_dl['cookiefile'] = cookie_file
         try:
@@ -196,13 +176,13 @@ def fetch_and_trim_audio():
                 ydl_dl.download([video_url])
                 downloaded = True
                 print("🎉 تم التحميل بنجاح محلياً!")
-        except: pass
+        except Exception as e: print(f"فشل المحلي: {e}")
 
     if not downloaded:
-        raise Exception("جميع الأسراب السحابية والمحلية فشلت! الحظر اليوم جنوني.")
+        raise Exception("جميع خطوط الهجوم استسلمت! السورة قد تكون محمية جغرافياً أو ضخمة جداً.")
 
     # ---------------- القص والذكاء الاصطناعي ----------------
-    print("جاري القص المسبق لحماية السيرفر...")
+    print("\n✂️ جاري القص المسبق لحماية السيرفر من الانهيار...")
     full_audio = AudioFileClip("raw_audio.mp3")
     short_audio_duration = min(60.0, full_audio.duration)
     short_audio = full_audio.subclip(0, short_audio_duration)
@@ -210,7 +190,7 @@ def fetch_and_trim_audio():
     full_audio.close()
     short_audio.close()
 
-    print("جاري تحليل الصوت بالذكاء الاصطناعي...")
+    print("🧠 جاري تحليل الصوت بالذكاء الاصطناعي (Whisper)...")
     model = WhisperModel("tiny", device="cpu", compute_type="int8")
     segments, info = model.transcribe("short_audio.mp3", beam_size=5)
     
@@ -225,7 +205,7 @@ def fetch_and_trim_audio():
             end_time = prev_end
             break
 
-    print(f"سيتم القص النهائي عند الثانية: {end_time}")
+    print(f"🎬 سيتم القص النهائي عند الثانية: {end_time}")
     final_audio = AudioFileClip("short_audio.mp3").subclip(0, end_time).audio_fadeout(2)
     final_audio.write_audiofile("final_audio.mp3", logger=None)
     final_audio.close()
