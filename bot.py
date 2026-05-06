@@ -71,10 +71,17 @@ def fetch_and_trim_audio():
         'حصن المسلم', 'بث مباشر', 'مباشر الآن', 'برودكاست'
     ]
     
-    ydl_opts_flat = {
+        # خيارات التحميل مع فك التشفير الذكي
+    ydl_opts_dl = {
+        'format': 'ba/b', # يطلب أفضل صوت متاح ببساطة لتجنب تعقيدات التشفير
+        'outtmpl': 'raw_audio.%(ext)s',
+        'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3'}],
         'quiet': True,
-        'extract_flat': True,
+        'nocheckcertificate': True,
+        'ignoreerrors': True,
+        'no_warnings': True,
     }
+    
     if cookie_file:
         ydl_opts_flat['cookiefile'] = cookie_file
     
