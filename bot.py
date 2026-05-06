@@ -15,6 +15,7 @@ PEXELS_API_KEY = os.environ.get("PEXELS_API_KEY")
 INSTA_TOKEN = os.environ.get("INSTA_TOKEN")
 ERROR_BOT_TOKEN = os.environ.get("ERROR_BOT_TOKEN")
 ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID")
+YOUTUBE_COOKIES = os.environ.get("YOUTUBE_COOKIES")
 HISTORY_FILE = "history.json"
 
 # ================= قنوات القراء =================
@@ -50,16 +51,25 @@ def load_history():
 def save_history(history):
     with open(HISTORY_FILE, "w") as f: json.dump(history, f)
 
-# ================= 2. تحميل الصوت (عبر النفق المعزول SOCKS5) =================
+# ================= تجهيز الكوكيز =================
+def setup_cookies():
+    if YOUTUBE_COOKIES:
+        with open("cookies.txt", "w") as f:
+            f.write(YOUTUBE_COOKIES)
+        return "cookies.txt"
+    return None
+
+# ================= 2. تحميل الصوت (الرسمي الموثق) =================
 def fetch_and_trim_audio():
     history = load_history()
+    cookie_file = setup_cookies()
     
-    # ------------------ البحث في القنوات ------------------
     ydl_opts_flat = {
         'quiet': True,
         'extract_flat': True,
-        'proxy': 'socks5h://127.0.0.1:40000' # استخدام النفق السري
     }
+    if cookie_file:
+        ydl_opts_flat['cookiefile'] = cookie_file
     
     selected_video = None
     selected_reciter = ""
@@ -67,7 +77,7 @@ def fetch_and_trim_audio():
     
     with YoutubeDL(ydl_opts_flat) as ydl:
         for channel in CHANNELS:
-            print(f"جاري البحث متخفياً في قناة: {channel['name']}...")
+            print(f"جاري البحث في قناة: {channel['name']}...")
             try:
                 info = ydl.extract_info(channel['url'], download=False)
                 entries = info.get('entries', [])
@@ -80,34 +90,33 @@ def fetch_and_trim_audio():
                         selected_reciter = channel['name']
                         break
             except Exception as e:
-                print(f"حدث خطأ أثناء فحص القناة: {e}")
+                print(f"حدث خطأ أثناء فحص قناة {channel['name']}: {e}")
                 
             if selected_video:
                 break
                 
     if not selected_video:
-        raise Exception("لم أجد فيديوهات جديدة! تأكد من القنوات أو ملف الذاكرة.")
+        raise Exception("لم أجد فيديوهات جديدة في أي من القنوات!")
 
     vid_id = selected_video['id']
     video_title = selected_video['title']
     video_url = f"https://www.youtube.com/watch?v={vid_id}"
     print(f"تم اختيار: {video_title} (القارئ: {selected_reciter} - ID: {vid_id})")
     
-    # ------------------ تحميل المقطع ------------------
+    print("جاري سحب الصوت (باستخدام تصريح الكوكيز)...")
     ydl_opts_dl = {
         'format': 'bestaudio/best',
         'outtmpl': 'raw_audio.%(ext)s',
         'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3'}],
         'quiet': True,
-        'proxy': 'socks5h://127.0.0.1:40000' # السطر السحري: تحميل من داخل الصندوق المعزول
     }
-    
-    print("جاري سحب الصوت عبر النفق السري...")
+    if cookie_file:
+        ydl_opts_dl['cookiefile'] = cookie_file
+        
     with YoutubeDL(ydl_opts_dl) as ydl_dl:
         ydl_dl.download([video_url])
-        print("🎉 تم كسر الحماية وتحميل الصوت بنجاح!")
+        print("🎉 تم سحب الصوت بنجاح!")
 
-    # ------------------ القص المسبق للحماية ------------------
     print("جاري قص أول 60 ثانية لحماية السيرفر من الانهيار...")
     full_audio = AudioFileClip("raw_audio.mp3")
     short_audio_duration = min(60.0, full_audio.duration)
@@ -219,8 +228,6 @@ if __name__ == "__main__":
     try:
         duration, title, vid_id, reciter = fetch_and_trim_audio()
         render_cinematic_video(duration, reciter)
-        
-        # التليجرام والإنستجرام سيعملان بكفاءة لأنهما خارج النفق!
         publish_to_instagram(reciter)
         
         history = load_history()
