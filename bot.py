@@ -49,6 +49,7 @@ def save_history(history):
     with open(HISTORY_FILE, "w") as f: json.dump(history, f)
 
 # ================= 2. تحميل الصوت والقص بالذكاء الاصطناعي =================
+# ================= 2. تحميل الصوت والقص بالذكاء الاصطناعي =================
 def fetch_and_trim_audio():
     history = load_history()
     
@@ -83,7 +84,7 @@ def fetch_and_trim_audio():
         ydl_opts['extract_flat'] = False
         with YoutubeDL(ydl_opts) as ydl_dl:
             video_url = selected_video.get('url') or selected_video.get('webpage_url') or f"https://www.youtube.com/watch?v={selected_video['id']}"
-ydl_dl.download([video_url])
+            ydl_dl.download([video_url])
             
     # تشغيل Whisper للذكاء الاصطناعي لتحديد نهاية الآية
     print("جاري تحليل الصوت بالذكاء الاصطناعي...")
@@ -112,6 +113,7 @@ ydl_dl.download([video_url])
     history['used_videos'].append(selected_video['id'])
     save_history(history)
     return end_time
+
 
 # ================= 3. جلب فيديوهات الطبيعة (متعددة) =================
 def fetch_pexels_videos(target_duration):
