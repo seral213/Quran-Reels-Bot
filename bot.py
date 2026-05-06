@@ -59,20 +59,20 @@ def setup_cookies():
         return "cookies.txt"
     return None
 
-# ================= 2. تحميل الصوت والفلترة =================
+# ================= 2. تحميل الصوت (مع خدعة الأندرويد) =================
 def fetch_and_trim_audio():
     history = load_history()
     cookie_file = setup_cookies()
     
-    # 1. أولاً: تعريف إعدادات البحث (تجنب خطأ NameError)
+    # 1. إعدادات البحث مع خدعة الأندرويد لتجنب ألغاز يوتيوب
     ydl_opts_flat = {
         'quiet': True,
         'extract_flat': True,
+        'extractor_args': {'youtube': ['player_client=android,web']}, # <-- السطر السحري
     }
     if cookie_file:
         ydl_opts_flat['cookiefile'] = cookie_file
     
-    # 2. قائمة الكلمات المحظورة (الأذكار والرقية فقط)
     forbidden_keywords = [
         'أذكار', 'اذكار', 'الصباح', 'المساء', 'النوم', 'الاستيقاظ', 
         'رقية', 'رقيّه', 'شرعية', 'شرعيه', 'دعاء', 'أدعية', 'ادعية', 
@@ -96,7 +96,6 @@ def fetch_and_trim_audio():
                     
                     if not vid_id or not title: continue
                     
-                    # فحص العنوان لاستبعاد الأذكار
                     is_forbidden = any(word.lower() in title.lower() for word in forbidden_keywords)
                     
                     if len(vid_id) == 11 and vid_id not in history['used_videos'] and not is_forbidden:
@@ -116,21 +115,21 @@ def fetch_and_trim_audio():
     video_url = f"https://www.youtube.com/watch?v={vid_id}"
     print(f"تم اختيار: {video_title} (القارئ: {selected_reciter})")
     
-    # 3. إعدادات التحميل الفعلي
+    # 2. إعدادات التحميل الفعلي (استخراج الصوت كجوال أندرويد)
     ydl_opts_dl = {
-        'format': 'ba/b',
+        'format': 'bestaudio/best',
         'outtmpl': 'raw_audio.%(ext)s',
         'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3'}],
         'quiet': True,
+        'extractor_args': {'youtube': ['player_client=android,web']}, # <-- السطر السحري
     }
     if cookie_file:
         ydl_opts_dl['cookiefile'] = cookie_file
         
     with YoutubeDL(ydl_opts_dl) as ydl_dl:
         ydl_dl.download([video_url])
-        print("🎉 تم تحميل الصوت بنجاح!")
+        print("🎉 تم تحميل الصوت بنجاح بدون ألغاز الجافا سكريبت!")
 
-    # حماية السيرفر من الملفات الطويلة (القص المسبق)
     print("جاري القص المسبق لحماية السيرفر...")
     full_audio = AudioFileClip("raw_audio.mp3")
     short_audio_duration = min(60.0, full_audio.duration)
@@ -139,7 +138,6 @@ def fetch_and_trim_audio():
     full_audio.close()
     short_audio.close()
 
-    # تحليل الصوت
     print("جاري تحليل الصوت بالذكاء الاصطناعي...")
     model = WhisperModel("tiny", device="cpu", compute_type="int8")
     segments, info = model.transcribe("short_audio.mp3", beam_size=5)
