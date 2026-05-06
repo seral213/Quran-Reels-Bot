@@ -1,8 +1,10 @@
 import os
 import json
 import time
+import random
 import requests
 import traceback
+import sys
 from datetime import datetime
 from yt_dlp import YoutubeDL
 from faster_whisper import WhisperModel
@@ -13,8 +15,13 @@ PEXELS_API_KEY = os.environ.get("PEXELS_API_KEY")
 INSTA_TOKEN = os.environ.get("INSTA_TOKEN")
 ERROR_BOT_TOKEN = os.environ.get("ERROR_BOT_TOKEN")
 ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID")
-YOUTUBE_URL = "https://www.youtube.com/@abdullahshaab1"
 HISTORY_FILE = "history.json"
+
+# ================= قنوات القراء =================
+CHANNELS = [
+    {"url": "https://www.youtube.com/@abdullahshaab1/videos", "name": "عبدالله شعبان"},
+    {"url": "https://www.youtube.com/@9li9/videos", "name": "عبدالرحمن مسعد"}
+]
 
 # ================= 0. نظام إشعارات تليجرام =================
 def send_telegram_alert(message):
@@ -43,45 +50,64 @@ def load_history():
 def save_history(history):
     with open(HISTORY_FILE, "w") as f: json.dump(history, f)
 
-# ================= 2. تحميل الصوت (محمي بدرع VPN) =================
+# ================= 2. تحميل الصوت (محمي بدرع VPN ومتعدد القنوات) =================
 def fetch_and_trim_audio():
     history = load_history()
     
-    ydl_opts = {
+    # خيارات الكشاف للبحث عن المقاطع فقط
+    ydl_opts_flat = {
+        'quiet': True,
+        'extract_flat': True,
+    }
+    
+    selected_video = None
+    selected_reciter = ""
+    
+    # خلط القنوات عشوائياً لكي لا يسحب من قناة واحدة دائماً
+    random.shuffle(CHANNELS)
+    
+    with YoutubeDL(ydl_opts_flat) as ydl:
+        for channel in CHANNELS:
+            print(f"جاري البحث في قناة: {channel['name']}...")
+            try:
+                info = ydl.extract_info(channel['url'], download=False)
+                entries = info.get('entries', [])
+                
+                for entry in entries:
+                    vid_id = entry.get('id', '')
+                    title = entry.get('title', '')
+                    # الشرط الذهبي للاختيار
+                    if len(vid_id) == 11 and vid_id not in history['used_videos'] and not any(x in title for x in ['رقية', 'دعاء', 'بث', 'مباشر']):
+                        selected_video = entry
+                        selected_reciter = channel['name']
+                        break
+            except Exception as e:
+                print(f"حدث خطأ أثناء فحص قناة {channel['name']}: {e}")
+                
+            if selected_video:
+                break # إذا وجد فيديو مناسب، يخرج من حلقة البحث
+                
+    if not selected_video:
+        raise Exception("لم أجد فيديوهات جديدة في أي من القنوات! تأكد من أن الذاكرة ليست ممتلئة.")
+
+    vid_id = selected_video['id']
+    video_title = selected_video['title']
+    video_url = f"https://www.youtube.com/watch?v={vid_id}"
+    print(f"تم اختيار: {video_title} (القارئ: {selected_reciter} - ID: {vid_id})")
+    
+    # خيارات التحميل مع الدرع
+    ydl_opts_download = {
         'format': 'bestaudio/best',
         'outtmpl': 'raw_audio.%(ext)s',
         'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3'}],
         'quiet': True,
-        'extract_flat': True,
         'source_address': '0.0.0.0'
     }
     
-    with YoutubeDL(ydl_opts) as ydl:
-        print("جاري جلب قائمة الفيديوهات من القناة...")
-        info = ydl.extract_info(YOUTUBE_URL, download=False)
-        entries = info['entries']
-        
-        selected_video = None
-        for entry in entries:
-            vid_id = entry.get('id', '')
-            title = entry.get('title', '')
-            # تم حذف كلمة 'ساعة' من الاستثناءات بناءً على طلبك
-            if len(vid_id) == 11 and vid_id not in history['used_videos'] and not any(x in title for x in ['رقية', 'دعاء', 'بث', 'مباشر']):
-                selected_video = entry
-                break
-                
-        if not selected_video:
-            raise Exception("لم أجد فيديوهات جديدة في القناة تستوفي الشروط!")
-
-        vid_id = selected_video['id']
-        video_title = selected_video['title']
-        video_url = f"https://www.youtube.com/watch?v={vid_id}"
-        print(f"تم اختيار: {video_title} (ID: {vid_id})")
-        
-        print("جاري سحب الصوت (تحت حماية Cloudflare WARP VPN)...")
-        ydl_opts['extract_flat'] = False
-        with YoutubeDL(ydl_opts) as ydl_dl:
-            ydl_dl.download([video_url])
+    print("جاري سحب الصوت (تحت حماية Cloudflare WARP VPN)...")
+    with YoutubeDL(ydl_opts_download) as ydl_dl:
+        ydl_dl.download([video_url])
+        print("🎉 تم سحب الصوت بنجاح!")
             
     print("جاري تحليل الصوت بالذكاء الاصطناعي...")
     model = WhisperModel("tiny", device="cpu", compute_type="int8")
@@ -102,7 +128,7 @@ def fetch_and_trim_audio():
     audio = AudioFileClip("raw_audio.mp3").subclip(0, end_time).audio_fadeout(2)
     audio.write_audiofile("final_audio.mp3")
     
-    return end_time, video_title, vid_id
+    return end_time, video_title, vid_id, selected_reciter
 
 # ================= 3. جلب فيديوهات الطبيعة =================
 def fetch_pexels_videos(target_duration):
@@ -133,16 +159,21 @@ def fetch_pexels_videos(target_duration):
             break
     return video_files
 
-# ================= 4. المونتاج السينمائي =================
-def render_cinematic_video(audio_duration):
+# ================= 4. المونتاج السينمائي الذكي =================
+def render_cinematic_video(audio_duration, reciter_name):
     clips = fetch_pexels_videos(audio_duration)
     final_video = concatenate_videoclips(clips, method="compose", padding=-1)
     final_video = final_video.subclip(0, audio_duration)
+    
     dark_overlay = ColorClip(size=final_video.size, color=(0,0,0)).set_opacity(0.35).set_duration(audio_duration)
+    
     txt_main = TextClip("عافية قلب", font="taj.ttf", fontsize=80, color='white', stroke_color='black', stroke_width=2)
     txt_main = txt_main.set_position('center').set_duration(audio_duration).crossfadein(1)
-    txt_sub = TextClip("القارئ: عبدالله شعبان", font="taj.ttf", fontsize=40, color='white')
+    
+    # كتابة اسم القارئ ديناميكياً بناءً على القناة التي تم الاختيار منها
+    txt_sub = TextClip(f"القارئ: {reciter_name}", font="taj.ttf", fontsize=40, color='white')
     txt_sub = txt_sub.set_position(('center', final_video.h/2 + 100)).set_duration(audio_duration)
+    
     video_with_audio = CompositeVideoClip([final_video, dark_overlay, txt_main, txt_sub])
     video_with_audio.audio = AudioFileClip("final_audio.mp3")
     video_with_audio.write_videofile("final_reel.mp4", fps=30, codec="libx264", audio_codec="aac", threads=4)
@@ -156,38 +187,51 @@ def get_ig_account_id():
     res2 = requests.get(url2).json()
     return res2['instagram_business_account']['id']
 
-def publish_to_instagram():
+def publish_to_instagram(reciter_name):
     upload_res = requests.post('https://tmpfiles.org/api/v1/upload', files={'file': open('final_reel.mp4', 'rb')})
     temp_url = upload_res.json()['data']['url'].replace('tmpfiles.org/', 'tmpfiles.org/dl/')
+    
     ig_user_id = get_ig_account_id()
     today = datetime.now().strftime("%A")
-    caption = "✨ سورة الكهف ليلة الجمعة..." if today == 'Thursday' else "عافية لقلبك 🤍. أرح مسمعك.\n\n#قرآن #تلاوة #عبدالله_شعبان #عافية_قلب"
+    
+    # وصف ذكي يتغير فيه اسم القارئ
+    if today == 'Thursday':
+        caption = "✨ سورة الكهف نور ما بين الجمعتين. لا تنسوا السنن والصلاة على النبي ﷺ. #سورة_الكهف #يوم_الجمعة #قرآن #تلاوة #عافية_قلب"
+    else:
+        caption = f"عافية لقلبك 🤍. أرح مسمعك بتلاوة القارئ {reciter_name}.\n\n#قرآن #تلاوة #راحة_نفسية #عافية_قلب #quran"
+
     media_url = f"https://graph.facebook.com/v18.0/{ig_user_id}/media"
     payload = {'media_type': 'REELS', 'video_url': temp_url, 'caption': caption, 'access_token': INSTA_TOKEN}
     creation_id = requests.post(media_url, data=payload).json()['id']
+    
     time.sleep(35)
+    
     publish_url = f"https://graph.facebook.com/v18.0/{ig_user_id}/media_publish"
     requests.post(publish_url, data={'creation_id': creation_id, 'access_token': INSTA_TOKEN})
 
 # ================= التشغيل الرئيسي =================
 if __name__ == "__main__":
-    import sys # استدعاء مكتبة النظام
     try:
-        duration, title, vid_id = fetch_and_trim_audio()
-        render_cinematic_video(duration)
-        publish_to_instagram()
+        # 1. المونتاج والصوت
+        duration, title, vid_id, reciter = fetch_and_trim_audio()
+        render_cinematic_video(duration, reciter)
         
-        # لا يتم تحديث الذاكرة إلا بعد نجاح النشر 100%
+        # 2. النشر (وإرسال اسم القارئ للوصف)
+        publish_to_instagram(reciter)
+        
+        # 3. تحديث الذاكرة
         history = load_history()
         history['used_videos'].append(vid_id)
         save_history(history)
         
-        send_telegram_alert(f"✅ *تم النشر بنجاح!*\nالمقطع: {title}")
+        # 4. إرسال البشارة
+        success_message = f"✅ *بشارة من استوديو القرآن*\n\nتم إنتاج ونشر فيديو جديد بنجاح! 🎉\n\n*القارئ:* {reciter}\n*المقطع:* {title}\n*المدة:* {int(duration)} ثانية"
+        send_telegram_alert(success_message)
         print("تم إنهاء العملية بنجاح كامل!")
         
     except Exception as e:
         error_details = traceback.format_exc()
         print(f"\n❌ حدث خطأ فادح:\n{error_details}")
-        send_telegram_alert(f"⚠️ *خطأ:* `{str(e)}`")
-        # هذا السطر هو الأهم: يجبر جيتهاب على إظهار الخطأ باللون الأحمر
-        sys.exit(1) 
+        error_message = f"⚠️ *تنبيه طارئ من استوديو القرآن*\n\nتوقف البوت عن العمل بسبب الخطأ التالي:\n\n`{str(e)}`\n\nيرجى الدخول لسيرفر GitHub للتحقق."
+        send_telegram_alert(error_message)
+        sys.exit(1) # لكي تظهر العلامة الحمراء في جيتهاب إذا فشل
