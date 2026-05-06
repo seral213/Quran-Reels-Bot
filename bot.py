@@ -59,12 +59,11 @@ def setup_cookies():
         return "cookies.txt"
     return None
 
-# ================= 2. تحميل الفيديو واستخراج الصوت =================
+# ================= 2. تحميل الصوت (الخطة الثلاثية) =================
 def fetch_and_trim_audio():
     history = load_history()
     cookie_file = setup_cookies()
     
-    # 1. إعدادات البحث
     ydl_opts_flat = {
         'quiet': True,
         'extract_flat': True,
@@ -94,7 +93,6 @@ def fetch_and_trim_audio():
                     title = entry.get('title', '')
                     
                     if not vid_id or not title: continue
-                    
                     is_forbidden = any(word.lower() in title.lower() for word in forbidden_keywords)
                     
                     if len(vid_id) == 11 and vid_id not in history['used_videos'] and not is_forbidden:
@@ -114,34 +112,76 @@ def fetch_and_trim_audio():
     video_url = f"https://www.youtube.com/watch?v={vid_id}"
     print(f"تم اختيار: {video_title} (القارئ: {selected_reciter})")
     
-    # 2. إعدادات التحميل (السلاح السري: نحمل الفيديو بدلاً من الصوت للتهرب من الحظر)
+    downloaded = False
+    
+    # --- الهجوم الأول (التخفي بمتصفح Chrome عبر curl-cffi) ---
+    print("المحاولة 1: جاري السحب بتخفي كامل (Impersonate Chrome)...")
     ydl_opts_dl = {
-        'format': '18/best', # صيغة 18 هي MP4 بجودة 360p (دائماً متاحة ولا يتم حجبها)
-        'outtmpl': 'raw_media.%(ext)s',
+        'format': 'ba/b',
+        'outtmpl': 'raw_audio.%(ext)s',
         'quiet': True,
+        'impersonate': 'chrome', # السر هنا: يخدع يوتيوب تماماً
+        'extractor_args': {'youtube': ['player_client=android']},
     }
     if cookie_file:
         ydl_opts_dl['cookiefile'] = cookie_file
         
-    print("جاري سحب الملف من يوتيوب (بصيغة فيديو للتمويه)...")
-    with YoutubeDL(ydl_opts_dl) as ydl_dl:
-        info_dict = ydl_dl.extract_info(video_url, download=True)
-        downloaded_file = ydl_dl.prepare_filename(info_dict)
-        print("🎉 تم تحميل الملف بنجاح وتجاوز حجب الصوتيات!")
+    try:
+        with YoutubeDL(ydl_opts_dl) as ydl_dl:
+            ydl_dl.download([video_url])
+            downloaded = True
+            print("🎉 تم التحميل بنجاح عبر التخفي!")
+    except Exception as e:
+        print(f"❌ فشل الهجوم الأول، جاري تفعيل الغارة السحابية...")
 
-    # 3. استخراج الصوت وقصه
-    print("جاري سلخ الصوت من الفيديو وقص أول 60 ثانية لحماية السيرفر...")
-    full_media = AudioFileClip(downloaded_file) # يفتح الفيديو كأنه ملف صوتي
-    short_audio_duration = min(60.0, full_media.duration)
-    short_audio = full_media.subclip(0, short_audio_duration)
+    # --- الهجوم الثاني (موقع Loader السحابي) ---
+    if not downloaded:
+        print("المحاولة 2: السحب عبر سيرفرات Loader.to...")
+        try:
+            res = requests.get(f"https://loader.to/ajax/download.php?format=mp3&url={video_url}", timeout=15).json()
+            job_id = res.get("id")
+            if job_id:
+                for _ in range(20): # ينتظر حتى يجهز الملف
+                    time.sleep(3)
+                    status = requests.get(f"https://loader.to/ajax/progress.php?id={job_id}", timeout=10).json()
+                    if status.get("text") == "Finished":
+                        dl_url = status.get("download_url")
+                        audio_data = requests.get(dl_url, timeout=60).content
+                        with open("raw_audio.mp3", "wb") as f: f.write(audio_data)
+                        downloaded = True
+                        print("🎉 تم التحميل بنجاح عبر Loader!")
+                        break
+        except Exception:
+            print(f"❌ فشل الهجوم الثاني...")
+
+    # --- الهجوم الثالث (موقع Cobalt السحابي) ---
+    if not downloaded:
+        print("المحاولة 3: السحب عبر سيرفرات Cobalt...")
+        headers = {"Accept": "application/json", "Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}
+        payload = {"url": video_url, "isAudioOnly": True, "aFormat": "mp3"}
+        try:
+            res = requests.post("https://api.cobalt.tools/", json=payload, headers=headers, timeout=15)
+            if res.status_code == 200:
+                dl_url = res.json().get("url")
+                if dl_url:
+                    audio_data = requests.get(dl_url, timeout=60).content
+                    with open("raw_audio.mp3", "wb") as f: f.write(audio_data)
+                    downloaded = True
+                    print("🎉 تم التحميل بنجاح عبر Cobalt!")
+        except Exception:
+            print(f"❌ فشل الهجوم الثالث...")
+
+    if not downloaded:
+        raise Exception("جميع خطوط الهجوم (المحلية والسحابية) فشلت في تحميل المقطع!")
+
+    print("جاري القص المسبق لحماية السيرفر...")
+    full_audio = AudioFileClip("raw_audio.mp3")
+    short_audio_duration = min(60.0, full_audio.duration)
+    short_audio = full_audio.subclip(0, short_audio_duration)
     short_audio.write_audiofile("short_audio.mp3", logger=None)
-    full_media.close()
-    
-    # مسح الفيديو الأساسي لتوفير مساحة في السيرفر
-    if os.path.exists(downloaded_file):
-        os.remove(downloaded_file)
+    full_audio.close()
+    short_audio.close()
 
-    # 4. تحليل الصوت
     print("جاري تحليل الصوت بالذكاء الاصطناعي...")
     model = WhisperModel("tiny", device="cpu", compute_type="int8")
     segments, info = model.transcribe("short_audio.mp3", beam_size=5)
