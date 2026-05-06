@@ -50,7 +50,7 @@ def load_history():
 def save_history(history):
     with open(HISTORY_FILE, "w") as f: json.dump(history, f)
 
-# ================= 2. تحميل الصوت (عبر مواقع بديلة لـ Y2mate) =================
+# ================= 2. تحميل الصوت (عبر أسطول السيرفرات البديلة) =================
 def fetch_and_trim_audio():
     history = load_history()
     
@@ -91,55 +91,108 @@ def fetch_and_trim_audio():
     video_url = f"https://www.youtube.com/watch?v={vid_id}"
     print(f"تم اختيار: {video_title} (القارئ: {selected_reciter} - ID: {vid_id})")
     
-    print("جاري سحب الصوت عبر مواقع التحميل الخارجية (البديلة عن Y2mate)...")
+    print("جاري سحب الصوت عبر أسطول من السيرفرات البديلة (Cobalt, Invidious, Piped)...")
     downloaded = False
     
-    # 1. محاولة عبر Cobalt API
+    headers = {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+    }
+    
+    # --- الخطة أ: سيرفرات Cobalt الحديثة ---
+    cobalt_payload = {
+        "url": video_url,
+        "downloadMode": "audio",
+        "audioFormat": "mp3",
+        "isAudioOnly": True,
+        "aFormat": "mp3"
+    }
+    cobalt_instances = [
+        "https://api.cobalt.tools",
+        "https://co.wuk.sh/api/json",
+        "https://cobalt.kwiatekmateusz.pl",
+        "https://api.cobalt.domain.glass"
+    ]
+    for instance in cobalt_instances:
+        try:
+            print(f"محاولة (Cobalt): {instance}")
+            res = requests.post(instance, json=cobalt_payload, headers=headers, timeout=15)
+            if res.status_code in [200, 202]:
+                data = res.json()
+                if 'url' in data:
+                    audio_data = requests.get(data['url'], timeout=60).content
+                    with open("raw_audio.mp3", "wb") as f: f.write(audio_data)
+                    downloaded = True
+                    print("🎉 تم تحميل الصوت بنجاح (Cobalt)!")
+                    break
+        except: pass
+
+    # --- الخطة ب: سيرفرات Invidious اللامركزية ---
+    if not downloaded:
+        invidious_instances = [
+            "https://vid.puffyan.us",
+            "https://invidious.nerdvpn.de",
+            "https://invidious.perennialte.ch",
+            "https://yewtu.be"
+        ]
+        for instance in invidious_instances:
+            try:
+                print(f"محاولة (Invidious): {instance}")
+                res = requests.get(f"{instance}/api/v1/videos/{vid_id}", timeout=15).json()
+                for fmt in res.get('adaptiveFormats', []):
+                    if 'audio' in fmt.get('type', ''):
+                        audio_data = requests.get(fmt['url'], timeout=60).content
+                        with open("raw_audio.mp3", "wb") as f: f.write(audio_data)
+                        downloaded = True
+                        print("🎉 تم تحميل الصوت بنجاح (Invidious)!")
+                        break
+                if downloaded: break
+            except: pass
+
+    # --- الخطة ج: سيرفرات Piped القوية ---
+    if not downloaded:
+        piped_instances = [
+            "https://pipedapi.kavin.rocks",
+            "https://pipedapi.in.projectsegfau.lt",
+            "https://pipedapi.us.projectsegfau.lt"
+        ]
+        for instance in piped_instances:
+            try:
+                print(f"محاولة (Piped): {instance}")
+                res = requests.get(f"{instance}/streams/{vid_id}", timeout=15).json()
+                if 'audioStreams' in res and len(res['audioStreams']) > 0:
+                    audio_url = res['audioStreams'][0]['url']
+                    audio_data = requests.get(audio_url, timeout=60).content
+                    with open("raw_audio.mp3", "wb") as f: f.write(audio_data)
+                    downloaded = True
+                    print("🎉 تم تحميل الصوت بنجاح (Piped)!")
+                    break
+            except: pass
+
+    # --- الخطة د (السرية): التنكر كشاشة تلفاز ذكي TV ---
     if not downloaded:
         try:
-            print("محاولة السحب من: Cobalt API")
-            headers = {'Accept': 'application/json', 'Content-Type': 'application/json'}
-            payload = {"url": video_url, "isAudioOnly": True, "aFormat": "mp3"}
-            res = requests.post("https://api.cobalt.tools/", json=payload, headers=headers, timeout=20).json()
-            if 'url' in res:
-                audio_data = requests.get(res['url'], timeout=120).content
-                with open("raw_audio.mp3", "wb") as f: f.write(audio_data)
+            print("محاولة السحب مباشرة عبر ثغرة التلفاز الذكي...")
+            ydl_opts_fallback = {
+                'format': 'bestaudio/best',
+                'outtmpl': 'raw_audio.%(ext)s',
+                'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3'}],
+                'quiet': True,
+                'extractor_args': {'youtube': ['player_client=tv,web_embedded']},
+            }
+            with YoutubeDL(ydl_opts_fallback) as ydl_dl:
+                ydl_dl.download([video_url])
                 downloaded = True
-                print("🎉 تم تحميل الصوت بنجاح عبر Cobalt!")
-        except Exception:
-            print("❌ فشل Cobalt API")
-
-    # 2. محاولة عبر Ryzendesu API
-    if not downloaded:
-        try:
-            print("محاولة السحب من: Ryzendesu API")
-            res = requests.get(f"https://ryzendesu.vip/api/downloader/ytmp3?url={video_url}", timeout=20).json()
-            if 'url' in res:
-                audio_data = requests.get(res['url'], timeout=120).content
-                with open("raw_audio.mp3", "wb") as f: f.write(audio_data)
-                downloaded = True
-                print("🎉 تم تحميل الصوت بنجاح عبر Ryzendesu!")
-        except Exception:
-            print("❌ فشل Ryzendesu API")
-
-    # 3. محاولة عبر Siputzx API
-    if not downloaded:
-        try:
-            print("محاولة السحب من: Siputzx API")
-            res = requests.get(f"https://api.siputzx.my.id/api/d/ytmp3?url={video_url}", timeout=20).json()
-            if 'data' in res and 'dl' in res['data']:
-                audio_data = requests.get(res['data']['dl'], timeout=120).content
-                with open("raw_audio.mp3", "wb") as f: f.write(audio_data)
-                downloaded = True
-                print("🎉 تم تحميل الصوت بنجاح عبر Siputzx!")
-        except Exception:
-            print("❌ فشل Siputzx API")
+                print("🎉 تم تحميل الصوت بنجاح (Smart TV)!")
+        except Exception as e:
+            print(f"❌ فشل الملاذ الأخير: {e}")
 
     if not downloaded:
-        raise Exception("فشلت جميع مواقع التحميل الخارجية! يرجى المحاولة لاحقاً.")
+        raise Exception("فشلت جميع الأسطول والسيرفرات في سحب المقطع! الحظر شامل اليوم.")
 
     # ================= القص المسبق لحماية السيرفر =================
-    print("جاري قص أول 60 ثانية من الملف لتسريع التحليل وتجنب انهيار السيرفر...")
+    print("جاري قص أول 60 ثانية لحماية السيرفر من الانهيار...")
     full_audio = AudioFileClip("raw_audio.mp3")
     short_audio_duration = min(60.0, full_audio.duration)
     short_audio = full_audio.subclip(0, short_audio_duration)
@@ -164,8 +217,6 @@ def fetch_and_trim_audio():
             break
 
     print(f"سيتم القص النهائي للمقطع عند الثانية: {end_time}")
-    
-    # القص النهائي وتصدير الملف المعتمد
     final_audio = AudioFileClip("short_audio.mp3").subclip(0, end_time).audio_fadeout(2)
     final_audio.write_audiofile("final_audio.mp3", logger=None)
     final_audio.close()
