@@ -51,21 +51,20 @@ def save_history(history):
 # ================= 2. تحميل الصوت والقص بالذكاء الاصطناعي =================
 # ================= 2. تحميل الصوت والقص بالذكاء الاصطناعي =================
 # ================= 2. تحميل الصوت والقص بالذكاء الاصطناعي =================
+# ================= 2. تحميل الصوت والقص بالذكاء الاصطناعي =================
 def fetch_and_trim_audio():
     history = load_history()
     
-    # خيارات تحميل الصوت من يوتيوب (مع التنكر كجهاز أندرويد لتجاوز الحظر)
     ydl_opts = {
         'format': 'bestaudio/best',
         'outtmpl': 'raw_audio.%(ext)s',
         'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3'}],
         'quiet': True,
         'extract_flat': True,
-        'extractor_args': {'youtube': ['player_client=android']} # السطر السحري لتجاوز الحظر
+        'extractor_args': {'youtube': ['client=ios,android,tv']} # محاولة التنكر كأجهزة مختلفة
     }
     
     with YoutubeDL(ydl_opts) as ydl:
-        # جلب قائمة الفيديوهات
         info = ydl.extract_info(YOUTUBE_URL, download=False)
         entries = info['entries']
         
@@ -73,7 +72,6 @@ def fetch_and_trim_audio():
         for entry in entries:
             vid_id = entry['id']
             title = entry.get('title', '')
-            # تخطي الفيديوهات المستخدمة والكلمات المستثناة
             if vid_id not in history['used_videos'] and not any(x in title for x in ['رقية', 'ساعة', 'دعاء']):
                 selected_video = entry
                 break
@@ -82,20 +80,56 @@ def fetch_and_trim_audio():
             raise Exception("لم أجد فيديوهات جديدة في القناة!")
 
         print(f"تم اختيار: {selected_video['title']}")
+        vid_id = selected_video['id']
+        video_url = selected_video.get('url') or selected_video.get('webpage_url') or f"https://www.youtube.com/watch?v={vid_id}"
         
-        # تحميل المقطع المختار
+        # ----------------- نظام التحميل مع خطة الطوارئ (بدون كوكيز) -----------------
         ydl_opts['extract_flat'] = False
-        with YoutubeDL(ydl_opts) as ydl_dl:
-            video_url = selected_video.get('url') or selected_video.get('webpage_url') or f"https://www.youtube.com/watch?v={selected_video['id']}"
-            ydl_dl.download([video_url])
+        try:
+            print("محاولة التحميل العادي...")
+            with YoutubeDL(ydl_opts) as ydl_dl:
+                ydl_dl.download([video_url])
+        except Exception as e:
+            print("⚠️ يوتيوب يحظر السيرفر! جاري تفعيل خطة الطوارئ (التحميل عبر السيرفرات البديلة)...")
             
-    # تشغيل Whisper للذكاء الاصطناعي لتحديد نهاية الآية
+            # سيرفرات بديلة (Invidious) مفتوحة المصدر لا تطلب كوكيز
+            instances = [
+                "https://inv.tux.pizza",
+                "https://invidious.jing.rocks",
+                "https://invidious.nerdvpn.de",
+                "https://invidious.flokinet.to"
+            ]
+            downloaded = False
+            for instance in instances:
+                try:
+                    print(f"محاولة السحب من: {instance}")
+                    res = requests.get(f"{instance}/api/v1/videos/{vid_id}", timeout=15).json()
+                    audio_url = None
+                    for fmt in res.get('adaptiveFormats', []):
+                        if 'audio' in fmt.get('type', ''):
+                            audio_url = fmt['url']
+                            break
+                    
+                    if audio_url:
+                        print("✅ تم العثور على مسار الصوت! جاري التحميل...")
+                        audio_data = requests.get(audio_url, timeout=30).content
+                        with open("raw_audio.mp3", "wb") as f:
+                            f.write(audio_data)
+                        downloaded = True
+                        print("🎉 تم تحميل الصوت بنجاح متجاوزاً حظر يوتيوب!")
+                        break
+                except Exception as ex:
+                    print(f"❌ فشل السيرفر {instance}، جاري تجربة غيره...")
+            
+            if not downloaded:
+                raise Exception("فشلت جميع محاولات تخطي حظر يوتيوب عبر السيرفرات البديلة!")
+        # -------------------------------------------------------------------------
+            
     print("جاري تحليل الصوت بالذكاء الاصطناعي...")
     model = WhisperModel("tiny", device="cpu", compute_type="int8")
     segments, info = model.transcribe("raw_audio.mp3", beam_size=5)
     
-    end_time = 50.0 # الافتراضي
-    # البحث عن السكتة الطويلة بين 40 و 60 ثانية
+    end_time = 50.0 
     prev_end = 0
     for segment in segments:
         if segment.end > 40 and (segment.start - prev_end) > 1.2:
@@ -108,16 +142,12 @@ def fetch_and_trim_audio():
 
     print(f"سيتم القص عند الثانية: {end_time}")
     
-    # قص الصوت
     audio = AudioFileClip("raw_audio.mp3").subclip(0, end_time).audio_fadeout(2)
     audio.write_audiofile("final_audio.mp3")
     
-    # تحديث الذاكرة
-    history['used_videos'].append(selected_video['id'])
+    history['used_videos'].append(vid_id)
     save_history(history)
     return end_time
-
-
 
 # ================= 3. جلب فيديوهات الطبيعة (متعددة) =================
 def fetch_pexels_videos(target_duration):
