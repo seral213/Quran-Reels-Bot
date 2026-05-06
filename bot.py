@@ -58,7 +58,7 @@ def setup_cookies():
         return "cookies.txt"
     return None
 
-# ================= 2. بروتوكول السرب (صاحب النفس الطويل) =================
+# ================= 2. بروتوكول السرب (التحميل الموزع) =================
 def fetch_and_trim_audio():
     history = load_history()
     cookie_file = setup_cookies()
@@ -110,49 +110,44 @@ def fetch_and_trim_audio():
     downloaded = False
     print("\n🚀 تفعيل بروتوكول السرب (بمهلة 5 دقائق للمقاطع الطويلة)...")
     
-    # ---------------- 1. هجوم سرب Cobalt الديناميكي ----------------
+    # 1. هجوم سرب Cobalt
     print("1️⃣ جاري استدعاء أسطول Cobalt...")
     try:
         cobalt_req = requests.get("https://instances.hyper.lol/instances.json", timeout=15).json()
         cobalt_urls = [inst['url'] for inst in cobalt_req if inst.get('api_online')]
         random.shuffle(cobalt_urls)
-        
         headers = {"Accept": "application/json", "Content-Type": "application/json"}
-        # تحديث Payload ليتوافق مع جميع نسخ Cobalt القديمة والحديثة
         payload = {"url": video_url, "isAudioOnly": True, "downloadMode": "audio", "aFormat": "mp3"}
         
         for api in cobalt_urls[:10]:
             try:
-                print(f"إرسال طلب التحضير إلى: {api}")
                 res = requests.post(f"{api}/", json=payload, headers=headers, timeout=20)
                 if res.status_code in [200, 202]:
                     dl_url = res.json().get('url')
                     if dl_url:
-                        print("✅ تم استلام مسار الملف! جاري التحميل (قد يستغرق بعض الوقت لحجمه)...")
-                        audio_data = requests.get(dl_url, timeout=300).content # مهلة 5 دقائق للتحميل
+                        audio_data = requests.get(dl_url, timeout=300).content 
                         if len(audio_data) > 50000:
                             with open("raw_audio.mp3", "wb") as f: f.write(audio_data)
                             downloaded = True
                             print(f"🎉 تم التحميل بنجاح عبر Cobalt!")
                             break
-            except Exception as e: continue
+            except Exception: continue
             if downloaded: break
-    except Exception as e: print("تجاوز سرب Cobalt...")
+    except Exception: print("تجاوز سرب Cobalt...")
 
-    # ---------------- 2. غارة Loader السحابية (النفس الطويل) ----------------
+    # 2. غارة Loader
     if not downloaded:
         print("2️⃣ جاري تفعيل غارة Loader السحابية...")
         try:
             res = requests.get(f"https://loader.to/ajax/download.php?format=mp3&url={video_url}", timeout=20).json()
             job_id = res.get("id")
             if job_id:
-                print("تم بدء المعالجة في السيرفر، يرجى الانتظار (المهلة القصوى 5 دقائق)...")
-                for _ in range(60): # 60 محاولة * 5 ثواني = 5 دقائق كاملة
+                print("تم بدء المعالجة في السيرفر، يرجى الانتظار...")
+                for _ in range(60): 
                     time.sleep(5)
                     status = requests.get(f"https://loader.to/ajax/progress.php?id={job_id}", timeout=15).json()
                     if status.get("text") == "Finished":
                         dl_url = status.get("download_url")
-                        print("✅ الملف جاهز! جاري سحبه...")
                         audio_data = requests.get(dl_url, timeout=300).content
                         if len(audio_data) > 50000:
                             with open("raw_audio.mp3", "wb") as f: f.write(audio_data)
@@ -161,14 +156,14 @@ def fetch_and_trim_audio():
                             break
         except Exception: print("فشل Loader في الوقت المحدد...")
 
-    # ---------------- 3. هجوم yt-dlp المحلي (التنكر كتلفاز) ----------------
+    # 3. هجوم yt-dlp المحلي
     if not downloaded:
         print("3️⃣ محاولة الاختراق المباشر عبر yt-dlp (تنكر Smart TV)...")
         ydl_opts_dl = {
             'format': 'm4a/bestaudio/best',
             'outtmpl': 'raw_audio.%(ext)s',
             'quiet': True,
-            'extractor_args': {'youtube': ['player_client=tv']}, # التلفاز لا يُرسل له ألغاز
+            'extractor_args': {'youtube': ['player_client=tv']},
         }
         if cookie_file: ydl_opts_dl['cookiefile'] = cookie_file
         try:
@@ -181,7 +176,6 @@ def fetch_and_trim_audio():
     if not downloaded:
         raise Exception("جميع خطوط الهجوم استسلمت! السورة قد تكون محمية جغرافياً أو ضخمة جداً.")
 
-    # ---------------- القص والذكاء الاصطناعي ----------------
     print("\n✂️ جاري القص المسبق لحماية السيرفر من الانهيار...")
     full_audio = AudioFileClip("raw_audio.mp3")
     short_audio_duration = min(60.0, full_audio.duration)
@@ -222,11 +216,15 @@ def fetch_pexels_videos(target_duration):
 
     headers = {"Authorization": PEXELS_API_KEY}
     url = f"https://api.pexels.com/videos/search?query={query}&orientation=portrait&size=large&per_page=10"
-    res = requests.get(url, headers=headers).json()
+    res_data = requests.get(url, headers=headers).json()
     
+    # --- كاشف الأخطاء لموقع Pexels ---
+    if 'videos' not in res_data:
+        raise Exception(f"❌ خطأ في مفتاح Pexels (PEXELS_API_KEY). الرد من السيرفر: {res_data}")
+        
     video_files = []
     current_duration = 0
-    for i, video in enumerate(res['videos']):
+    for i, video in enumerate(res_data['videos']):
         if any(tag in str(video['tags']).lower() for tag in ['people', 'woman', 'face', 'human']):
             continue
         link = video['video_files'][0]['link']
@@ -263,12 +261,22 @@ def render_cinematic_video(audio_duration, reciter_name):
 def get_ig_account_id():
     url = f"https://graph.facebook.com/v18.0/me/accounts?access_token={INSTA_TOKEN}"
     res = requests.get(url).json()
+    
+    # --- كاشف الأخطاء لموقع فيسبوك وإنستجرام ---
+    if 'data' not in res or len(res['data']) == 0:
+        raise Exception(f"❌ خطأ في توكن إنستجرام. فيسبوك يقول أنه لا توجد صفحات مربوطة بهذا التوكن! الرد: {res}")
+        
     page_id = res['data'][0]['id']
     url2 = f"https://graph.facebook.com/v18.0/{page_id}?fields=instagram_business_account&access_token={INSTA_TOKEN}"
     res2 = requests.get(url2).json()
+    
+    if 'instagram_business_account' not in res2:
+        raise Exception(f"❌ صفحة الفيسبوك ليست مربوطة بحساب إنستجرام احترافي! الرد: {res2}")
+        
     return res2['instagram_business_account']['id']
 
 def publish_to_instagram(reciter_name):
+    print("جاري الرفع على سيرفرات مؤقتة للنشر...")
     upload_res = requests.post('https://tmpfiles.org/api/v1/upload', files={'file': open('final_reel.mp4', 'rb')})
     temp_url = upload_res.json()['data']['url'].replace('tmpfiles.org/', 'tmpfiles.org/dl/')
     
@@ -280,6 +288,7 @@ def publish_to_instagram(reciter_name):
     else:
         caption = f"عافية لقلبك 🤍. أرح مسمعك بتلاوة القارئ {reciter_name}.\n\n#قرآن #تلاوة #راحة_نفسية #عافية_قلب #quran"
 
+    print("جاري إرسال أمر النشر إلى إنستجرام...")
     media_url = f"https://graph.facebook.com/v18.0/{ig_user_id}/media"
     payload = {'media_type': 'REELS', 'video_url': temp_url, 'caption': caption, 'access_token': INSTA_TOKEN}
     creation_id = requests.post(media_url, data=payload).json()['id']
