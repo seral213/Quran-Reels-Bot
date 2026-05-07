@@ -30,12 +30,10 @@ YOUTUBE_COOKIES = os.environ.get("YOUTUBE_COOKIES")
 HISTORY_FILE = "history.json"
 SESSION_FILE = "session.json"
 
-# ================= دالة إصلاح النص العربي ومنع القص =================
+# ================= دالة إصلاح النص العربي =================
 def fix_arabic(text):
     if not text: return ""
-    # إضافة مسافات وهمية ضخمة يمين ويسار النص لمنع القص من الأطراف
-    padded_text = f"     {text}     " 
-    # إعدادات متقدمة لدعم الحروف المتصلة بالكامل
+    padded_text = f" {text} " 
     reshaper = arabic_reshaper.ArabicReshaper(configuration={
         'delete_harakat': False,
         'support_ligatures': True,
@@ -52,14 +50,11 @@ CHANNELS = [
 
 # ================= نظام إشعارات تليجرام =================
 def send_telegram_alert(message):
-    if not ERROR_BOT_TOKEN or not ADMIN_CHAT_ID:
-        return
+    if not ERROR_BOT_TOKEN or not ADMIN_CHAT_ID: return
     url = f"https://api.telegram.org/bot{ERROR_BOT_TOKEN}/sendMessage"
     payload = {"chat_id": ADMIN_CHAT_ID, "text": message, "parse_mode": "Markdown"}
-    try:
-        requests.post(url, data=payload)
-    except Exception:
-        pass
+    try: requests.post(url, data=payload)
+    except Exception: pass
 
 def load_history():
     if os.path.exists(HISTORY_FILE):
@@ -122,7 +117,7 @@ def fetch_and_trim_audio():
     
     # المحاولة 1: التخفي المحلي
     ydl_opts_dl = {
-        'format': 'ba/b/18/17/mp4/best', # خيارات سحب أكثر أماناً
+        'format': 'ba/b/18/17/mp4/best',
         'outtmpl': 'raw_audio.%(ext)s', 'quiet': True,
         'impersonate': 'chrome', 'extractor_args': {'youtube': ['player_client=android']},
     }
@@ -134,7 +129,7 @@ def fetch_and_trim_audio():
             print("🎉 تم التحميل بنجاح عبر التخفي المحلي!")
     except Exception as e: print(f"❌ فشل المحلي: {e}")
 
-    # المحاولة 2: Cobalt السحابي (السيرفرات البديلة)
+    # المحاولة 2: Cobalt הסحابي
     if not downloaded:
         try:
             cobalt_req = requests.get("https://instances.hyper.lol/instances.json", timeout=15).json()
@@ -150,27 +145,13 @@ def fetch_and_trim_audio():
                         if len(audio_data) > 50000:
                             with open("raw_audio.mp3", "wb") as f: f.write(audio_data)
                             downloaded = True
-                            print("🎉 تم التحميل بنجاح عبر Cobalt السحابي!")
+                            print("🎉 تم التحميل بنجاح عبر Cobalt הסحابي!")
                             break
                 except: continue
                 if downloaded: break
         except: pass
 
-    # المحاولة 3: Cobalt السحابي (السيرفر الرسمي)
-    if not downloaded:
-        try:
-            headers = {"Accept": "application/json", "Content-Type": "application/json"}
-            payload = {"url": video_url, "isAudioOnly": True, "aFormat": "mp3"}
-            res = requests.post("https://api.cobalt.tools/api/json", json=payload, headers=headers, timeout=20)
-            if res.status_code == 200 and res.json().get('url'):
-                audio_data = requests.get(res.json().get('url'), timeout=300).content
-                if len(audio_data) > 50000:
-                    with open("raw_audio.mp3", "wb") as f: f.write(audio_data)
-                    downloaded = True
-                    print("🎉 تم التحميل عبر Cobalt الرسمي!")
-        except: pass
-
-    # المحاولة 4: Loader السحابي
+    # المحاولة 3: Loader السحابي
     if not downloaded:
         try:
             res = requests.get(f"https://loader.to/ajax/download.php?format=mp3&url={video_url}", timeout=20).json()
@@ -266,20 +247,24 @@ def fetch_pexels_videos(target_duration):
         if current_duration >= target_duration: break
     return video_files
 
-# ================= 4. المونتاج السينمائي =================
+# ================= 4. المونتاج السينمائي (مع صندوق النص الذكي) =================
 def render_cinematic_video(audio_duration, reciter_name):
     clips = fetch_pexels_videos(audio_duration)
     final_video = concatenate_videoclips(clips, method="compose", padding=-1).subclip(0, audio_duration)
     dark_overlay = ColorClip(size=final_video.size, color=(0,0,0)).set_opacity(0.35).set_duration(audio_duration)
     
-    # تطبيق دالة الإصلاح مع تصغير الخط بشكل ملحوظ
+    # إنشاء صندوق وهمي للنص بعرض 90% من الشاشة لمنع القص نهائياً
+    box_width = int(final_video.w * 0.9)
+    
     reshaped_main_title = fix_arabic("عافية قلب")
-    txt_main = TextClip(reshaped_main_title, font="taj.ttf", fontsize=25, color='white', stroke_color='black', stroke_width=1)
+    # تم تغيير method إلى 'caption' وتحديد size وإضافة align='center' لمنع التقطيع
+    txt_main = TextClip(reshaped_main_title, font="taj.ttf", fontsize=35, color='white', stroke_color='black', stroke_width=1.5, size=(box_width, None), method='caption', align='center')
     txt_main = txt_main.set_position('center').set_duration(audio_duration).crossfadein(1.0)
     
     reshaped_sub_title = fix_arabic(f"القارئ: {reciter_name}")
-    txt_sub = TextClip(reshaped_sub_title, font="taj.ttf", fontsize=15, color='white')
-    txt_sub = txt_sub.set_position(('center', final_video.h/2 + 50)).set_duration(audio_duration).crossfadein(1.0)
+    # تصغير خط القارئ إلى 20
+    txt_sub = TextClip(reshaped_sub_title, font="taj.ttf", fontsize=20, color='white', size=(box_width, None), method='caption', align='center')
+    txt_sub = txt_sub.set_position(('center', final_video.h/2 + 70)).set_duration(audio_duration).crossfadein(1.0)
     
     video_with_audio = CompositeVideoClip([final_video, dark_overlay, txt_main, txt_sub])
     video_with_audio = video_with_audio.fadein(1.0).fadeout(1.5)
@@ -334,20 +319,36 @@ def publish_to_instagram(reciter_name, title):
     except Exception as e:
         raise Exception(f"❌ فشل النشر: {str(e)}")
 
-# ================= التشغيل الرئيسي =================
+# ================= التشغيل الرئيسي (مع نظام الإلحاح 🔄) =================
 if __name__ == "__main__":
-    try:
-        duration, title, vid_id, reciter = fetch_and_trim_audio()
-        render_cinematic_video(duration, reciter)
-        publish_to_instagram(reciter, title)
-        
-        history = load_history()
-        history['used_videos'].append(vid_id)
-        save_history(history)
-        send_telegram_alert("✅ تم النشر بنجاح كامل!")
-        print("تم إنهاء العملية بنجاح!")
-    except Exception as e:
-        error_details = traceback.format_exc()
-        print(f"\n❌ حدث خطأ فادح:\n{error_details}")
-        send_telegram_alert(f"⚠️ خطأ:\n`{str(e)}`")
-        sys.exit(1)
+    max_retries = 3 # عدد محاولات التشغيل الكلية إذا فشل التحميل
+    
+    for attempt in range(1, max_retries + 1):
+        try:
+            print(f"\n🚀 --- بدء محاولة التشغيل رقم {attempt} من {max_retries} ---")
+            
+            duration, title, vid_id, reciter = fetch_and_trim_audio()
+            render_cinematic_video(duration, reciter)
+            publish_to_instagram(reciter, title)
+            
+            history = load_history()
+            history['used_videos'].append(vid_id)
+            save_history(history)
+            
+            send_telegram_alert("✅ تم النشر بنجاح كامل!")
+            print("تم إنهاء العملية بنجاح كامل!")
+            break # الخروج من الحلقة بنجاح
+            
+        except Exception as e:
+            error_details = traceback.format_exc()
+            print(f"\n❌ حدث خطأ في المحاولة {attempt}:\n{error_details}")
+            
+            if attempt < max_retries:
+                alert_msg = f"⚠️ واجه البوت مشكلة في المحاولة {attempt}.\nجاري الانتظار 3 دقائق وإعادة المحاولة...\n\nالخطأ:\n{str(e)}"
+                send_telegram_alert(alert_msg)
+                print("⏳ جاري الانتظار 3 دقائق قبل المحاولة التالية لتجنب الحظر...")
+                time.sleep(180) # انتظار 3 دقائق
+            else:
+                final_error = f"🚨 *فشل نهائي*\n\nفشلت جميع المحاولات الـ {max_retries} اليوم!\n\nالخطأ الأخير:\n`{str(e)}`\n\nيرجى الدخول لسيرفر GitHub للتحقق."
+                send_telegram_alert(final_error)
+                sys.exit(1)
