@@ -4,3 +4,5 @@ moviepy==1.0.3
 requests
 curl-cffi
 instagrapi
+arabic_reshaper
+python-bidi
