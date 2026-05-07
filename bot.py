@@ -9,14 +9,17 @@ from datetime import datetime
 from yt_dlp import YoutubeDL
 from faster_whisper import WhisperModel
 from moviepy.editor import VideoFileClip, AudioFileClip, concatenate_videoclips, TextClip, CompositeVideoClip, ColorClip
+from instagrapi import Client
 
 # ================= الإعدادات والمفاتيح =================
 PEXELS_API_KEY = os.environ.get("PEXELS_API_KEY")
-INSTA_TOKEN = os.environ.get("INSTA_TOKEN")
+IG_USERNAME = os.environ.get("IG_USERNAME")
+IG_PASSWORD = os.environ.get("IG_PASSWORD")
 ERROR_BOT_TOKEN = os.environ.get("ERROR_BOT_TOKEN")
 ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID")
 YOUTUBE_COOKIES = os.environ.get("YOUTUBE_COOKIES")
 HISTORY_FILE = "history.json"
+SESSION_FILE = "session.json" # <-- ملف حماية الجلسة الجديد
 
 # ================= قنوات القراء =================
 CHANNELS = [
@@ -58,7 +61,7 @@ def setup_cookies():
         return "cookies.txt"
     return None
 
-# ================= 2. بروتوكول السرب (الهجوم الشامل) =================
+# ================= 2. بروتوكول السرب =================
 def fetch_and_trim_audio():
     history = load_history()
     cookie_file = setup_cookies()
@@ -110,13 +113,12 @@ def fetch_and_trim_audio():
     downloaded = False
     print("\n🚀 تفعيل بروتوكول السرب الشامل...")
     
-    # --- الهجوم الأول (التخفي المتقدم بمتصفح Chrome عبر curl-cffi) ---
     print("1️⃣ المحاولة 1: جاري السحب بتخفي كامل (Impersonate Chrome)...")
     ydl_opts_dl = {
-        'format': 'ba/b/18', # طلب الصوت، وإذا كان محجوباً نسحب الفيديو (صيغة 18) للتمويه
+        'format': 'ba/b/18', 
         'outtmpl': 'raw_audio.%(ext)s',
         'quiet': True,
-        'impersonate': 'chrome', # السلاح المدمر الذي سقط سهواً
+        'impersonate': 'chrome', 
         'extractor_args': {'youtube': ['player_client=android']},
     }
     if cookie_file: ydl_opts_dl['cookiefile'] = cookie_file
@@ -129,7 +131,6 @@ def fetch_and_trim_audio():
     except Exception as e:
         print(f"❌ فشل الهجوم المحلي: {e}")
 
-    # --- الهجوم الثاني (أسطول Cobalt) ---
     if not downloaded:
         print("2️⃣ جاري استدعاء أسطول Cobalt...")
         try:
@@ -155,7 +156,6 @@ def fetch_and_trim_audio():
                 if downloaded: break
         except Exception: print("تجاوز سرب Cobalt...")
 
-    # --- الهجوم الثالث (غارة Loader السحابية طويلة النفس) ---
     if not downloaded:
         print("3️⃣ جاري تفعيل غارة Loader السحابية...")
         try:
@@ -179,9 +179,8 @@ def fetch_and_trim_audio():
     if not downloaded:
         raise Exception("جميع الأسراب السحابية والمحلية فشلت! الحظر اليوم جنوني.")
 
-    # ---------------- القص والذكاء الاصطناعي ----------------
     print("\n✂️ جاري القص المسبق لحماية السيرفر من الانهيار...")
-    full_audio = AudioFileClip("raw_audio.mp3") # Moviepy يتعامل مع الصوت والفيديو بنفس الطريقة هنا
+    full_audio = AudioFileClip("raw_audio.mp3") 
     short_audio_duration = min(60.0, full_audio.duration)
     short_audio = full_audio.subclip(0, short_audio_duration)
     short_audio.write_audiofile("short_audio.mp3", logger=None)
@@ -208,7 +207,6 @@ def fetch_and_trim_audio():
     final_audio.write_audiofile("final_audio.mp3", logger=None)
     final_audio.close()
     
-    # مسح الملف الخام بعد الانتهاء
     try: os.remove("raw_audio.mp3")
     except: pass
     
@@ -226,7 +224,6 @@ def fetch_pexels_videos(target_duration):
     url = f"https://api.pexels.com/videos/search?query={query}&orientation=portrait&size=large&per_page=10"
     res_data = requests.get(url, headers=headers).json()
     
-    # --- كاشف الأخطاء لموقع Pexels ---
     if 'videos' not in res_data:
         raise Exception(f"❌ خطأ في مفتاح Pexels (PEXELS_API_KEY). الرد من السيرفر: {res_data}")
         
@@ -265,67 +262,64 @@ def render_cinematic_video(audio_duration, reciter_name):
     video_with_audio.audio = AudioFileClip("final_audio.mp3")
     video_with_audio.write_videofile("final_reel.mp4", fps=30, codec="libx264", audio_codec="aac", threads=4)
 
-# ================= 5. النشر في إنستجرام =================
-def get_ig_account_id():
-    url = f"https://graph.facebook.com/v18.0/me/accounts?access_token={INSTA_TOKEN}"
-    res = requests.get(url).json()
-    
-    # --- كاشف الأخطاء لموقع فيسبوك وإنستجرام ---
-    if 'data' not in res or len(res['data']) == 0:
-        raise Exception(f"❌ خطأ في توكن إنستجرام. فيسبوك يقول أنه لا توجد صفحات مربوطة بهذا التوكن! الرد: {res}")
-        
-    page_id = res['data'][0]['id']
-    url2 = f"https://graph.facebook.com/v18.0/{page_id}?fields=instagram_business_account&access_token={INSTA_TOKEN}"
-    res2 = requests.get(url2).json()
-    
-    if 'instagram_business_account' not in res2:
-        raise Exception(f"❌ صفحة الفيسبوك ليست مربوطة بحساب إنستجرام احترافي! الرد: {res2}")
-        
-    return res2['instagram_business_account']['id']
+# ================= 5. النشر وحماية الجلسة =================
+def publish_to_instagram(reciter_name, title):
+    print("جاري الرفع على سيرفرات مؤقتة لإرساله لتليجرام...")
+    try:
+        upload_res = requests.post('https://tmpfiles.org/api/v1/upload', files={'file': open('final_reel.mp4', 'rb')})
+        temp_url = upload_res.json()['data']['url'].replace('tmpfiles.org/', 'tmpfiles.org/dl/')
+        msg = f"🎥 *استوديو القرآن - مقطع جاهز!*\n\nالقارئ: {reciter_name}\nالعنوان: {title}\n\n📥 لتحميل ومشاهدة الفيديو، اضغط هنا (الرابط صالح لـ 60 دقيقة فقط):\n{temp_url}"
+        send_telegram_alert(msg)
+        print("✅ تم إرسال رابط المشاهدة إلى تليجرام!")
+    except Exception as e:
+        print(f"⚠️ فشل رفع الفيديو المؤقت، لكن سنكمل النشر: {e}")
 
-def publish_to_instagram(reciter_name):
-        print("جاري الرفع على سيرفرات مؤقتة للنشر...")
-    upload_res = requests.post('https://tmpfiles.org/api/v1/upload', files={'file': open('final_reel.mp4', 'rb')})
-    temp_url = upload_res.json()['data']['url'].replace('tmpfiles.org/', 'tmpfiles.org/dl/')
-    
-    # --- أضف هذا السطر ليرسل لك الرابط على تليجرام فوراً ---
-    send_telegram_alert(f"🎥 تم الانتهاء من المونتاج! يمكنك مشاهدة وتحميل الفيديو من هنا مؤقتاً:\n{temp_url}")
+    if not IG_USERNAME or not IG_PASSWORD:
+        raise Exception("❌ لم يتم العثور على IG_USERNAME أو IG_PASSWORD في الـ Secrets!")
 
-    ig_user_id = get_ig_account_id()
     today = datetime.now().strftime("%A")
-    
     if today == 'Thursday':
         caption = "✨ سورة الكهف نور ما بين الجمعتين. لا تنسوا السنن والصلاة على النبي ﷺ. #سورة_الكهف #يوم_الجمعة #قرآن #تلاوة #عافية_قلب"
     else:
         caption = f"عافية لقلبك 🤍. أرح مسمعك بتلاوة القارئ {reciter_name}.\n\n#قرآن #تلاوة #راحة_نفسية #عافية_قلب #quran"
 
-    print("جاري إرسال أمر النشر إلى إنستجرام...")
-    media_url = f"https://graph.facebook.com/v18.0/{ig_user_id}/media"
-    payload = {'media_type': 'REELS', 'video_url': temp_url, 'caption': caption, 'access_token': INSTA_TOKEN}
-    creation_id = requests.post(media_url, data=payload).json()['id']
+    print("جاري تسجيل الدخول لإنستجرام...")
+    cl = Client()
+    cl.delay_range = [1, 3] 
     
-    time.sleep(35)
-    publish_url = f"https://graph.facebook.com/v18.0/{ig_user_id}/media_publish"
-    requests.post(publish_url, data={'creation_id': creation_id, 'access_token': INSTA_TOKEN})
+    try:
+        # --- السلاح الجديد: استعادة الجلسة ---
+        if os.path.exists(SESSION_FILE):
+            print("🔄 تم العثور على جلسة سابقة! جاري تسجيل الدخول المتخفي لتجنب الحظر...")
+            cl.load_settings(SESSION_FILE)
+            
+        cl.login(IG_USERNAME, IG_PASSWORD)
+        cl.dump_settings(SESSION_FILE) # حفظ الجلسة للغد
+        
+        print("✅ تم تسجيل الدخول بنجاح! جاري رفع الريلز...")
+        cl.clip_upload("final_reel.mp4", caption)
+        print("🎉 تم نشر الريلز على حسابك بنجاح!")
+    except Exception as e:
+        raise Exception(f"❌ فشل النشر التلقائي في إنستجرام (لكن الفيديو موجود في تليجرام). السبب: {str(e)}")
 
 # ================= التشغيل الرئيسي =================
 if __name__ == "__main__":
     try:
         duration, title, vid_id, reciter = fetch_and_trim_audio()
         render_cinematic_video(duration, reciter)
-        publish_to_instagram(reciter)
+        publish_to_instagram(reciter, title)
         
         history = load_history()
         history['used_videos'].append(vid_id)
         save_history(history)
         
-        success_message = f"✅ *بشارة من استوديو القرآن*\n\nتم إنتاج ونشر فيديو جديد بنجاح! 🎉\n\n*القارئ:* {reciter}\n*المقطع:* {title}\n*المدة:* {int(duration)} ثانية"
+        success_message = f"✅ *بشارة من استوديو القرآن*\n\nتم إنتاج ونشر فيديو جديد بنجاح كامل! 🎉"
         send_telegram_alert(success_message)
         print("تم إنهاء العملية بنجاح كامل!")
         
     except Exception as e:
         error_details = traceback.format_exc()
         print(f"\n❌ حدث خطأ فادح:\n{error_details}")
-        error_message = f"⚠️ *تنبيه طارئ من استوديو القرآن*\n\nتوقف البوت عن العمل بسبب الخطأ التالي:\n\n`{str(e)}`\n\nيرجى الدخول لسيرفر GitHub للتحقق."
+        error_message = f"⚠️ *تنبيه طارئ من استوديو القرآن*\n\nتوقف البوت بسبب:\n`{str(e)}`\nيرجى التحقق."
         send_telegram_alert(error_message)
         sys.exit(1)
