@@ -10,6 +10,9 @@ from yt_dlp import YoutubeDL
 from faster_whisper import WhisperModel
 from moviepy.editor import VideoFileClip, AudioFileClip, concatenate_videoclips, TextClip, CompositeVideoClip, ColorClip
 
+# === المكتبة الجديدة للذكاء الاصطناعي ===
+import google.generativeai as genai
+
 # === استدعاءات إنستجرام ===
 try:
     from instagrapi import Client
@@ -27,8 +30,50 @@ IG_PASSWORD = os.environ.get("IG_PASSWORD")
 ERROR_BOT_TOKEN = os.environ.get("ERROR_BOT_TOKEN")
 ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID")
 YOUTUBE_COOKIES = os.environ.get("YOUTUBE_COOKIES")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY") # المفتاح الجديد
 HISTORY_FILE = "history.json"
 SESSION_FILE = "session.json"
+
+# إعداد Gemini إذا كان المفتاح موجوداً
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
+
+# ================= دالة القص الذكي عبر Gemini =================
+def get_smart_timestamps(transcript_segments):
+    if not GEMINI_API_KEY:
+        return None, None
+
+    full_text_with_time = ""
+    for seg in transcript_segments:
+        full_text_with_time += f"[{seg.start:.2f}s - {seg.end:.2f}s]: {seg.text}\n"
+
+    prompt = f"""
+    أنت خبير في القرآن الكريم. أمامك نص مستخرج من تلاوة قرآنية مع التوقيت الزمني لكل جملة.
+    المطلوب تحديد نقطة البداية ونقطة النهاية بدقة (بالثواني) لعمل مقطع فيديو ريلز مدته بين 40 و 60 ثانية:
+    1. البداية: ابحث عن أول كلمة يبدأ فيها القارئ التلاوة الفعلية (تخطى البسملة والاستعاذة والمقدمات).
+    2. النهاية: ابحث عن نهاية آية صحيحة تكتمل بها المعاني.
+    
+    النص:
+    {full_text_with_time}
+    
+    رد علي فقط بالأرقام بهذا الشكل بالضبط بدون أي نصوص إضافية:
+    START: رقم
+    END: رقم
+    """
+    
+    try:
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        response = model.generate_content(prompt)
+        start, end = None, None
+        for line in response.text.split('\n'):
+            if "START:" in line: start = float(line.split(":")[1].strip().replace('s', ''))
+            if "END:" in line: end = float(line.split(":")[1].strip().replace('s', ''))
+        
+        if start is not None and end is not None:
+            return start, end
+    except Exception as e:
+        print(f"⚠️ فشل تحليل Gemini: {e}")
+    return None, None
 
 # ================= دالة إصلاح النص العربي =================
 def fix_arabic(text):
@@ -85,13 +130,24 @@ def fetch_and_trim_audio():
     selected_reciter = ""
     start_time_for_clip = 0.0
     
+    is_thursday = datetime.now().strftime("%A") == "Thursday"
+    
     random.shuffle(CHANNELS)
     with YoutubeDL(ydl_opts_flat) as ydl:
         for channel in CHANNELS:
             print(f"جاري البحث في قناة: {channel['name']}...")
             try:
                 info = ydl.extract_info(channel['url'], download=False)
-                for entry in info.get('entries', []):
+                entries_to_check = info.get('entries', [])
+                
+                # --- فلتر يوم الخميس للبحث عن سورة الكهف ---
+                if is_thursday:
+                    kahf_entries = [e for e in entries_to_check if "الكهف" in e.get('title', '')]
+                    if kahf_entries:
+                        entries_to_check = kahf_entries
+                        print("✨ تم تخصيص البحث لسورة الكهف بمناسبة يوم الخميس.")
+
+                for entry in entries_to_check:
                     vid_id = entry.get('id', '')
                     title = entry.get('title', '')
                     duration_sec = entry.get('duration', 0)
@@ -176,7 +232,7 @@ def fetch_and_trim_audio():
     full_audio_clip = AudioFileClip("raw_audio.mp3")
     
     # أخذ عينة دقيقتين من نقطة التوقف السابقة
-    analysis_end = min(start_time_for_clip + 120.0, full_audio_clip.duration)
+    analysis_end = min(start_time_for_clip + 150.0, full_audio_clip.duration)
     analysis_subclip = full_audio_clip.subclip(start_time_for_clip, analysis_end)
     analysis_subclip.write_audiofile("temp_analysis.mp3", logger=None)
     
@@ -185,31 +241,40 @@ def fetch_and_trim_audio():
     try: os.remove("temp_analysis.mp3")
     except: pass
 
-    relative_start = 0.0
-    if start_time_for_clip == 0.0:
-        intro_keywords = ["بسم الله", "أعوذ بالله", "الحمد لله", "رب العالمين"]
-        for segment in segments_list:
-            if any(word in segment.text for word in intro_keywords) and segment.start < 60.0:
-                relative_start = segment.start
-                print(f"✅ تم تخطي المقدمة.")
-                break
-
-    relative_end = min(relative_start + 60.0, analysis_subclip.duration)
-    best_gap = 0
-    for i in range(len(segments_list) - 1):
-        curr = segments_list[i]
-        nxt = segments_list[i+1]
-        if curr.end > (relative_start + 45.0) and curr.end < relative_end:
-            gap = nxt.start - curr.end
-            if gap > 1.2 and gap > best_gap:
-                best_gap = gap
-                relative_end = curr.end + (gap / 2)
-                break
-
-    # حساب الأوقات الحقيقية بالنسبة للفيديو الأصلي
-    absolute_start = start_time_for_clip + relative_start
-    absolute_end = start_time_for_clip + relative_end
+    # --- تطبيق القص الذكي (Gemini + الفولباك الكلاسيكي) ---
+    print("🧠 جاري إرسال النص لـ Gemini لضبط الآيات بدقة...")
+    rel_start, rel_end = get_smart_timestamps(segments_list)
     
+    if rel_start is not None and rel_end is not None:
+        print(f"✨ نجح Gemini في تحديد الآيات! البداية: {rel_start}، النهاية: {rel_end}")
+        absolute_start = start_time_for_clip + rel_start
+        absolute_end = start_time_for_clip + rel_end
+    else:
+        print("⚠️ فشل Gemini أو المفتاح مفقود. سيتم استخدام القص الكلاسيكي (نظام الصمت)...")
+        relative_start = 0.0
+        if start_time_for_clip == 0.0:
+            intro_keywords = ["بسم الله", "أعوذ بالله", "الحمد لله", "رب العالمين"]
+            for segment in segments_list:
+                if any(word in segment.text for word in intro_keywords) and segment.start < 60.0:
+                    relative_start = segment.start
+                    print(f"✅ تم تخطي المقدمة.")
+                    break
+
+        relative_end = min(relative_start + 60.0, analysis_subclip.duration)
+        best_gap = 0
+        for i in range(len(segments_list) - 1):
+            curr = segments_list[i]
+            nxt = segments_list[i+1]
+            if curr.end > (relative_start + 45.0) and curr.end < relative_end:
+                gap = nxt.start - curr.end
+                if gap > 1.2 and gap > best_gap:
+                    best_gap = gap
+                    relative_end = curr.end + (gap / 2)
+                    break
+
+        absolute_start = start_time_for_clip + relative_start
+        absolute_end = start_time_for_clip + relative_end
+
     # --- تحديث الذاكرة للنقطة الجديدة ---
     history['youtube_clips'][vid_id] = absolute_end
     
@@ -298,7 +363,15 @@ def publish_to_instagram(reciter_name, title):
     except: pass
 
     if not IG_USERNAME or not IG_PASSWORD: raise Exception("الـ Secrets مفقودة!")
-    caption = f"عافية لقلبك 🤍. أرح مسمعك بتلاوة القارئ {reciter_name}.\n\n#قرآن #تلاوة #عافية_قلب"
+    
+    # --- الوصف المخصص ليوم الخميس (ليلة الجمعة) ---
+    is_thursday = datetime.now().strftime("%A") == "Thursday"
+    if is_thursday:
+        caption = f"✨ سورة الكهف نور ما بين الجمعتين. لا تنسوا السنن والصلاة على النبي ﷺ.\n\nتلاوة القارئ: {reciter_name} 🤍\n#سورة_الكهف #يوم_الجمعة #قرآن #عافية_قلب"
+    else:
+        caption = f"عافية لقلبك 🤍. أرح مسمعك بتلاوة القارئ {reciter_name}.\n\n#قرآن #تلاوة #عافية_قلب"
+    
+    print("جاري تسجيل الدخول لإنستجرام...")
     
     cl = Client()
     cl.delay_range = [1, 3]
