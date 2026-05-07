@@ -2,3 +2,5 @@ yt-dlp
 faster-whisper
 moviepy==1.0.3
 requests
+curl-cffi
+instagrapi
