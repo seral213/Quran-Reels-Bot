@@ -284,10 +284,13 @@ def get_ig_account_id():
     return res2['instagram_business_account']['id']
 
 def publish_to_instagram(reciter_name):
-    print("جاري الرفع على سيرفرات مؤقتة للنشر...")
+        print("جاري الرفع على سيرفرات مؤقتة للنشر...")
     upload_res = requests.post('https://tmpfiles.org/api/v1/upload', files={'file': open('final_reel.mp4', 'rb')})
     temp_url = upload_res.json()['data']['url'].replace('tmpfiles.org/', 'tmpfiles.org/dl/')
     
+    # --- أضف هذا السطر ليرسل لك الرابط على تليجرام فوراً ---
+    send_telegram_alert(f"🎥 تم الانتهاء من المونتاج! يمكنك مشاهدة وتحميل الفيديو من هنا مؤقتاً:\n{temp_url}")
+
     ig_user_id = get_ig_account_id()
     today = datetime.now().strftime("%A")
     
