@@ -32,16 +32,19 @@ jobs:
     - name: تشغيل استوديو المونتاج والنشر
       env:
         PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
-        INSTA_TOKEN: ${{ secrets.INSTA_TOKEN }}
+        IG_USERNAME: ${{ secrets.IG_USERNAME }}
+        IG_PASSWORD: ${{ secrets.IG_PASSWORD }}
         ERROR_BOT_TOKEN: ${{ secrets.ERROR_BOT_TOKEN }}
         ADMIN_CHAT_ID: ${{ secrets.ADMIN_CHAT_ID }}
         YOUTUBE_COOKIES: ${{ secrets.YOUTUBE_COOKIES }}
       run: python bot.py
 
-    - name: حفظ الذاكرة (تحديث ملف history.json)
+    - name: حفظ الذاكرة وجلسة إنستجرام الآمنة
       run: |
         git config --global user.name "QuranBot"
         git config --global user.email "bot@example.com"
         git add history.json
-        git commit -m "تحديث الذاكرة اليومية" || echo "لا يوجد تحديث جديد"
+        # هذا السطر الذكي يرفع الجلسة فقط إذا تم إنشاؤها بنجاح
+        if [ -f session.json ]; then git add session.json; fi
+        git commit -m "تحديث الذاكرة وحفظ جلسة إنستجرام" || echo "لا يوجد تحديث جديد"
         git push
