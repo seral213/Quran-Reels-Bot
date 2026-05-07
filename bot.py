@@ -99,10 +99,9 @@ def fetch_and_trim_audio():
                     if not vid_id or not title or duration_sec == 0: continue
                     if any(word.lower() in title.lower() for word in forbidden_keywords): continue
                     
-                    # --- الذكاء: فحص الذاكرة ---
+                    # --- الذكاء: فحص الذاكرة لمنع حرق المقاطع الطويلة ---
                     saved_time = history['youtube_clips'].get(vid_id, 0.0)
                     if saved_time >= (duration_sec - 60): 
-                        # الفيديو تم استهلاكه بالكامل (بقي أقل من دقيقة)
                         continue
                         
                     selected_video = entry
@@ -122,10 +121,12 @@ def fetch_and_trim_audio():
     downloaded = False
     print("\n🚀 تفعيل بروتوكول السرب للتحميل...")
     
+    # المحاولة 1: التخفي المحلي المحدث لدعم الكوكيز بشكل شامل
     ydl_opts_dl = {
         'format': 'ba/b/18/17/mp4/best',
         'outtmpl': 'raw_audio.%(ext)s', 'quiet': True,
-        'impersonate': 'chrome', 'extractor_args': {'youtube': ['player_client=android']},
+        'impersonate': 'chrome', 
+        'extractor_args': {'youtube': ['player_client=android,ios,tv,web']},
     }
     if cookie_file: ydl_opts_dl['cookiefile'] = cookie_file
     try:
@@ -135,7 +136,7 @@ def fetch_and_trim_audio():
             print("🎉 تم التحميل بنجاح محلياً!")
     except Exception as e: print(f"❌ فشل المحلي: {e}")
 
-    # محاولة Cobalt و Loader محذوفة للتبسيط هنا (أضفها إذا أردت، لكن التخفي بمتصفح Chrome كافٍ جداً الآن مع الجودات المتعددة).
+    # المحاولة 2: Cobalt السحابي
     if not downloaded:
         try:
             headers = {"Accept": "application/json", "Content-Type": "application/json"}
@@ -146,6 +147,25 @@ def fetch_and_trim_audio():
                 if len(audio_data) > 50000:
                     with open("raw_audio.mp3", "wb") as f: f.write(audio_data)
                     downloaded = True
+                    print("🎉 تم التحميل بنجاح عبر Cobalt السحابي!")
+        except: pass
+
+    # المحاولة 3: Loader السحابي
+    if not downloaded:
+        try:
+            res = requests.get(f"https://loader.to/ajax/download.php?format=mp3&url={video_url}", timeout=20).json()
+            job_id = res.get("id")
+            if job_id:
+                for _ in range(60): 
+                    time.sleep(5)
+                    status = requests.get(f"https://loader.to/ajax/progress.php?id={job_id}", timeout=15).json()
+                    if status.get("text") == "Finished":
+                        audio_data = requests.get(status.get("download_url"), timeout=300).content
+                        if len(audio_data) > 50000:
+                            with open("raw_audio.mp3", "wb") as f: f.write(audio_data)
+                            downloaded = True
+                            print("🎉 تم التحميل بنجاح عبر Loader السحابي!")
+                            break
         except: pass
 
     if not downloaded: raise Exception("جميع الأسراب السحابية والمحلية فشلت! الحظر جنوني اليوم.")
@@ -166,7 +186,6 @@ def fetch_and_trim_audio():
     except: pass
 
     relative_start = 0.0
-    # فقط نبحث عن مقدمة إذا كنا في بداية الفيديو (الثانية 0)
     if start_time_for_clip == 0.0:
         intro_keywords = ["بسم الله", "أعوذ بالله", "الحمد لله", "رب العالمين"]
         for segment in segments_list:
@@ -224,7 +243,6 @@ def fetch_pexels_videos(target_duration, history):
     
     for video in res_data['videos']:
         vid_id_str = str(video['id'])
-        # تخطي الفيديو إذا كان في الذاكرة (تم استخدامه قريباً)
         if vid_id_str in history['used_pexels']: continue
         if any(tag in str(video['tags']).lower() for tag in ['people', 'woman', 'face']): continue
         
@@ -237,7 +255,6 @@ def fetch_pexels_videos(target_duration, history):
         video_files.append((clip, vid_name))
         current_duration += clip.duration
         
-        # حفظ الفيديو في الذاكرة وإزالة القديم إذا تجاوز 60 فيديو
         history['used_pexels'].append(vid_id_str)
         if len(history['used_pexels']) > 60:
             history['used_pexels'].pop(0)
@@ -252,12 +269,11 @@ def render_cinematic_video(audio_duration, clips_data):
     final_video = concatenate_videoclips(clips, method="compose", padding=-1).subclip(0, audio_duration)
     dark_overlay = ColorClip(size=final_video.size, color=(0,0,0)).set_opacity(0.35).set_duration(audio_duration)
     
-    # --- إبقاء عنوان عافية قلب فقط بناء على طلبك وإزالة اسم القارئ ---
+    # --- إبقاء عنوان عافية قلب فقط وإزالة اسم القارئ ---
     box_width = int(final_video.w * 0.9)
     reshaped_main_title = fix_arabic("عافية قلب")
     
     txt_main = TextClip(reshaped_main_title, font="taj.ttf", fontsize=28, color='white', stroke_color='black', stroke_width=1, size=(box_width, None), method='caption', align='center')
-    # توسيط النص تماماً في الشاشة
     txt_main = txt_main.set_position('center').set_duration(audio_duration).crossfadein(1.0)
     
     video_with_audio = CompositeVideoClip([final_video, dark_overlay, txt_main])
