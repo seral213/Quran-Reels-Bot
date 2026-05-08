@@ -46,10 +46,10 @@ def send_telegram_alert(message):
     try: requests.post(url, data=payload)
     except Exception: pass
 
-# ================= دالة القص الذكي عبر Gemini (مع كشف الأخطاء) =================
+# ================= دالة القص الذكي عبر Gemini =================
 def get_smart_timestamps(transcript_segments):
     if not GEMINI_API_KEY:
-        return None, None, "مفتاح GEMINI_API_KEY غير موجود في إعدادات GitHub Secrets."
+        return None, None, "مفتاح GEMINI_API_KEY غير موجود."
 
     full_text_with_time = ""
     for seg in transcript_segments:
@@ -81,14 +81,14 @@ def get_smart_timestamps(transcript_segments):
             start = float(match_start.group(1))
         if match_end: 
             end = float(match_end.group(1))
-            end += 1.5 # إضافة وسادة صوتية
+            end += 1.5 
             
         if start is not None and end is not None:
             return start, end, None
         else:
-            return None, None, "لم يتمكن الذكاء الاصطناعي من تحديد البداية والنهاية من النص."
+            return None, None, "فشل الذكاء الاصطناعي في تحديد الأوقات من النص."
     except Exception as e:
-        return None, None, str(e) # إرجاع الخطأ الفعلي
+        return None, None, str(e)
 
 # ================= دالة إصلاح النص العربي =================
 def fix_arabic(text):
@@ -124,7 +124,7 @@ def setup_cookies():
         return "cookies.txt"
     return None
 
-# ================= بروتوكول السرب الشامل =================
+# ================= بروتوكول السرب الشامل وجرد المخزون =================
 def fetch_and_trim_audio():
     history = load_history()
     cookie_file = setup_cookies()
@@ -133,16 +133,15 @@ def fetch_and_trim_audio():
     if cookie_file: ydl_opts_flat['cookiefile'] = cookie_file
     
     forbidden_keywords = ['أذكار', 'اذكار', 'الصباح', 'المساء', 'النوم', 'الاستيقاظ', 'رقية', 'شرعية', 'دعاء', 'أدعية', 'بث مباشر']
-    selected_video = None
-    selected_reciter = ""
-    start_time_for_clip = 0.0
     
     is_thursday = datetime.now().strftime("%A") == "Thursday"
     
-    random.shuffle(CHANNELS)
+    available_videos_pool = []
+    
+    # 1. جرد شامل لجميع القنوات والفيديوهات
+    print("جاري فحص مخزون الفيديوهات في القنوات...")
     with YoutubeDL(ydl_opts_flat) as ydl:
         for channel in CHANNELS:
-            print(f"جاري البحث في قناة: {channel['name']}...")
             try:
                 info = ydl.extract_info(channel['url'], download=False)
                 entries_to_check = info.get('entries', [])
@@ -151,7 +150,7 @@ def fetch_and_trim_audio():
                     kahf_entries = [e for e in entries_to_check if "الكهف" in e.get('title', '')]
                     if kahf_entries:
                         entries_to_check = kahf_entries
-                        print("✨ تم تخصيص البحث لسورة الكهف بمناسبة يوم الخميس.")
+                        print(f"✨ تم العثور على مقاطع لسورة الكهف في قناة {channel['name']}.")
 
                 for entry in entries_to_check:
                     vid_id = entry.get('id', '')
@@ -162,26 +161,33 @@ def fetch_and_trim_audio():
                     if any(word.lower() in title.lower() for word in forbidden_keywords): continue
                     
                     saved_time = history['youtube_clips'].get(vid_id, 0.0)
-                    if saved_time >= (duration_sec - 60): 
-                        continue
+                    if saved_time < (duration_sec - 60): 
+                        available_videos_pool.append((entry, channel['name'], saved_time))
                         
-                    selected_video = entry
-                    selected_reciter = channel['name']
-                    start_time_for_clip = saved_time
-                    break
-                if selected_video: break
-            except Exception as e: print(f"خطأ في القناة: {e}")
-                
-    if not selected_video: raise Exception("لم أجد فيديوهات فيها مساحة كافية للقص!")
+            except Exception as e: print(f"خطأ أثناء فحص قناة {channel['name']}: {e}")
 
+    # 2. نظام التنبيه بانتهاء المخزون
+    remaining_count = len(available_videos_pool)
+    if remaining_count == 0:
+        raise Exception("❌ انتهت جميع الفيديوهات الصالحة في القنوات المحددة! يرجى إضافة قنوات جديدة أو مسح الذاكرة لتدوير السور.")
+    elif remaining_count <= 3:
+        send_telegram_alert(f"🔔 *تنبيه قرب انتهاء المخزون!*\n\nمتبقي {remaining_count} فيديوهات صالحة فقط للقص في القنوات المحددة.\nهل ترغب في إضافة قنوات جديدة أو تدوير السور (مسح الذاكرة) قريباً؟")
+
+    # اختيار مقطع عشوائي من المخزون المتاح لضمان التنوع
+    selected = random.choice(available_videos_pool)
+    selected_video = selected[0]
+    selected_reciter = selected[1]
+    start_time_for_clip = selected[2]
+    
     vid_id = selected_video['id']
     video_title = selected_video['title']
     video_url = f"https://www.youtube.com/watch?v={vid_id}"
     print(f"تم اختيار: {video_title}\nيبدأ القص من الدقيقة: {start_time_for_clip/60:.2f}")
     
     downloaded = False
-    print("\n🚀 تفعيل بروتوكول السرب للتحميل...")
+    print("\n🚀 تفعيل بروتوكول السرب للتحميل (الكوكيز أولاً)...")
     
+    # المحاولة 1: التخفي المحلي مع الكوكيز (السلاح الرسمي)
     ydl_opts_dl = {
         'format': 'ba/b/18/17/mp4/best',
         'outtmpl': 'raw_audio.%(ext)s', 'quiet': True,
@@ -189,14 +195,22 @@ def fetch_and_trim_audio():
         'extractor_args': {'youtube': ['player_client=android,ios,tv,web']},
     }
     if cookie_file: ydl_opts_dl['cookiefile'] = cookie_file
+    
     try:
         with YoutubeDL(ydl_opts_dl) as ydl_dl:
             ydl_dl.download([video_url])
             downloaded = True
-            print("🎉 تم التحميل بنجاح محلياً!")
-    except Exception as e: print(f"❌ فشل المحلي: {e}")
+            print("🎉 تم التحميل بنجاح محلياً عبر الكوكيز!")
+    except Exception as e:
+        error_msg = str(e).lower()
+        print(f"❌ فشل المحلي: {error_msg}")
+        # نظام التشخيص للكوكيز
+        if "sign in" in error_msg or "cookie" in error_msg or "bot" in error_msg:
+            send_telegram_alert("⚠️ *تنبيه حماية يوتيوب:*\n\nيبدو أن يوتيوب رفض الكوكيز الحالية (انتهت صلاحيتها أو تم حظرها).\nيرجى استخراج `YOUTUBE_COOKIES` جديدة وتحديثها في إعدادات GitHub.")
 
+    # المحاولة 2: السحابي الأول (Cobalt)
     if not downloaded:
+        print("2️⃣ جاري محاولة التحميل عبر Cobalt السحابي...")
         try:
             headers = {"Accept": "application/json", "Content-Type": "application/json"}
             payload = {"url": video_url, "isAudioOnly": True, "aFormat": "mp3"}
@@ -206,9 +220,12 @@ def fetch_and_trim_audio():
                 if len(audio_data) > 50000:
                     with open("raw_audio.mp3", "wb") as f: f.write(audio_data)
                     downloaded = True
+                    print("🎉 تم التحميل بنجاح عبر Cobalt السحابي!")
         except: pass
 
+    # المحاولة 3: السحابي الثاني (Loader)
     if not downloaded:
+        print("3️⃣ جاري محاولة التحميل عبر Loader السحابي...")
         try:
             res = requests.get(f"https://loader.to/ajax/download.php?format=mp3&url={video_url}", timeout=20).json()
             job_id = res.get("id")
@@ -221,10 +238,11 @@ def fetch_and_trim_audio():
                         if len(audio_data) > 50000:
                             with open("raw_audio.mp3", "wb") as f: f.write(audio_data)
                             downloaded = True
+                            print("🎉 تم التحميل بنجاح عبر Loader السحابي!")
                             break
         except: pass
 
-    if not downloaded: raise Exception("جميع الأسراب السحابية والمحلية فشلت! الحظر جنوني اليوم.")
+    if not downloaded: raise Exception("جميع الأسراب السحابية والمحلية فشلت! يوتيوب يحظر السيرفر بقوة اليوم.")
 
     print("🧠 جاري تحليل الصوت بالذكاء الاصطناعي...")
     model = WhisperModel("base", device="cpu", compute_type="int8")
@@ -241,7 +259,6 @@ def fetch_and_trim_audio():
     except: pass
 
     print("🧠 جاري إرسال النص لـ Gemini لضبط الآيات بدقة...")
-    # إرسال النص واستقبال الأوقات ورسالة الخطأ إن وجدت
     rel_start, rel_end, gemini_error = get_smart_timestamps(segments_list)
     
     if rel_start is not None and rel_end is not None:
@@ -249,11 +266,9 @@ def fetch_and_trim_audio():
         absolute_start = start_time_for_clip + rel_start
         absolute_end = start_time_for_clip + rel_end
     else:
-        # --- الفولباك الكلاسيكي مع إرسال إشعار العطل لتليجرام ---
-        print("⚠️ فشل Gemini، سيتم الانتقال للنظام الكلاسيكي (القص التلقائي)...")
-        error_msg = gemini_error if gemini_error else "عطل غير معروف في تحليل النص."
-        alert_text = f"⚠️ *تنبيه من نظام القص الذكي (Gemini)*\n\nواجه البوت مشكلة مع Gemini وتم استخدام القص الآلي القديم كبديل لضمان عدم توقف العمل.\n\n*السبب التقني:*\n`{error_msg}`"
-        send_telegram_alert(alert_text)
+        print("⚠️ فشل Gemini، سيتم الانتقال للنظام الكلاسيكي...")
+        error_msg = gemini_error if gemini_error else "عطل غير معروف."
+        send_telegram_alert(f"⚠️ *تنبيه Gemini:*\nتم استخدام القص الآلي القديم كبديل.\nالسبب التقني:\n`{error_msg}`")
         
         relative_start = 0.0
         if start_time_for_clip == 0.0:
@@ -396,12 +411,12 @@ def publish_to_instagram(reciter_name, title):
     except Exception as e:
         raise Exception(f"❌ فشل النشر: {str(e)}")
 
-# ================= التشغيل الرئيسي (إلحاح متكرر) =================
+# ================= التشغيل الرئيسي (نظام الإلحاح) =================
 if __name__ == "__main__":
     max_retries = 3 
     for attempt in range(1, max_retries + 1):
         try:
-            print(f"\n🚀 --- بدء محاولة التشغيل {attempt}/3 ---")
+            print(f"\n🚀 --- بدء محاولة التشغيل {attempt}/{max_retries} ---")
             
             dur, title, vid_id, reciter, history = fetch_and_trim_audio()
             clips_data, updated_history = fetch_pexels_videos(dur, history)
@@ -414,10 +429,14 @@ if __name__ == "__main__":
             
         except Exception as e:
             error_details = traceback.format_exc()
+            error_msg = str(e)
             print(f"\n❌ حدث خطأ في المحاولة {attempt}:\n{error_details}")
+            
             if attempt < max_retries:
-                send_telegram_alert(f"⚠️ فشل (المحاولة {attempt}). جاري انتظار 3 دقائق...")
+                # إرسال إشعار تفصيلي لسبب الفشل قبل الانتظار
+                alert_text = f"⚠️ *فشل (المحاولة {attempt})*\nجاري انتظار 3 دقائق والمحاولة مجدداً...\n\n*السبب:* `{error_msg}`"
+                send_telegram_alert(alert_text)
                 time.sleep(180)
             else:
-                send_telegram_alert(f"🚨 *فشل نهائي*\n\n`{str(e)}`")
+                send_telegram_alert(f"🚨 *فشل نهائي بعد 3 محاولات*\n\n`{error_msg}`")
                 sys.exit(1)
