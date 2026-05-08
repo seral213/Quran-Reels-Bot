@@ -94,8 +94,7 @@ def get_smart_timestamps(transcript_segments):
             start = float(match_start.group(1))
         if match_end: 
             end = float(match_end.group(1))
-            # 🔥 التعديل الجذري: زيادة الوسادة إلى 3.5 ثوانٍ لاستيعاب التجويد والمدود
-            end += 3.5 
+            end += 1.5 
             
         if start is not None and end is not None:
             return start, end, None
@@ -241,6 +240,7 @@ def fetch_and_trim_audio():
                 res = requests.get(f"{instance}/streams/{vid_id}", timeout=15).json()
                 audio_streams = res.get("audioStreams", [])
                 if audio_streams:
+                    # سحب أعلى جودة صوت متوفرة
                     best_stream = audio_streams[-1]['url']
                     audio_data = requests.get(best_stream, timeout=300).content
                     with open("raw_audio.m4a", "wb") as f: f.write(audio_data)
@@ -343,16 +343,13 @@ def fetch_and_trim_audio():
                     break
 
         absolute_start = start_time_for_clip + relative_start
-        # 🔥 التعديل الجذري على النظام الكلاسيكي أيضاً لحماية التجويد
-        absolute_end = start_time_for_clip + relative_end + 2.5 
+        absolute_end = start_time_for_clip + relative_end
 
     history['youtube_clips'][vid_id] = absolute_end
     
     final_audio_duration = absolute_end - absolute_start
     trimmed_audio = full_audio_clip.subclip(absolute_start, absolute_end)
-    
-    # 🔥 تعديل تلاشي الصوت ليكون أطول وسينمائي ولا يبتلع الكلمة الأخيرة
-    final_audio = trimmed_audio.audio_fadein(1.0).audio_fadeout(2.5)
+    final_audio = trimmed_audio.audio_fadein(1.0).audio_fadeout(1.5)
     final_audio.write_audiofile("final_audio.mp3", logger=None)
     
     final_audio.close()
