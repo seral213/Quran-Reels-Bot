@@ -5,6 +5,7 @@ import random
 import requests
 import traceback
 import sys
+import re
 from datetime import datetime
 from yt_dlp import YoutubeDL
 from faster_whisper import WhisperModel
@@ -30,18 +31,25 @@ IG_PASSWORD = os.environ.get("IG_PASSWORD")
 ERROR_BOT_TOKEN = os.environ.get("ERROR_BOT_TOKEN")
 ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID")
 YOUTUBE_COOKIES = os.environ.get("YOUTUBE_COOKIES")
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY") # المفتاح الجديد
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 HISTORY_FILE = "history.json"
 SESSION_FILE = "session.json"
 
-# إعداد Gemini إذا كان المفتاح موجوداً
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
 
-# ================= دالة القص الذكي عبر Gemini =================
+# ================= نظام إشعارات تليجرام =================
+def send_telegram_alert(message):
+    if not ERROR_BOT_TOKEN or not ADMIN_CHAT_ID: return
+    url = f"https://api.telegram.org/bot{ERROR_BOT_TOKEN}/sendMessage"
+    payload = {"chat_id": ADMIN_CHAT_ID, "text": message, "parse_mode": "Markdown"}
+    try: requests.post(url, data=payload)
+    except Exception: pass
+
+# ================= دالة القص الذكي عبر Gemini (مع كشف الأخطاء) =================
 def get_smart_timestamps(transcript_segments):
     if not GEMINI_API_KEY:
-        return None, None
+        return None, None, "مفتاح GEMINI_API_KEY غير موجود في إعدادات GitHub Secrets."
 
     full_text_with_time = ""
     for seg in transcript_segments:
@@ -65,15 +73,22 @@ def get_smart_timestamps(transcript_segments):
         model = genai.GenerativeModel('gemini-1.5-flash')
         response = model.generate_content(prompt)
         start, end = None, None
-        for line in response.text.split('\n'):
-            if "START:" in line: start = float(line.split(":")[1].strip().replace('s', ''))
-            if "END:" in line: end = float(line.split(":")[1].strip().replace('s', ''))
         
+        match_start = re.search(r'START:\s*([0-9.]+)', response.text)
+        match_end = re.search(r'END:\s*([0-9.]+)', response.text)
+        
+        if match_start: 
+            start = float(match_start.group(1))
+        if match_end: 
+            end = float(match_end.group(1))
+            end += 1.5 # إضافة وسادة صوتية
+            
         if start is not None and end is not None:
-            return start, end
+            return start, end, None
+        else:
+            return None, None, "لم يتمكن الذكاء الاصطناعي من تحديد البداية والنهاية من النص."
     except Exception as e:
-        print(f"⚠️ فشل تحليل Gemini: {e}")
-    return None, None
+        return None, None, str(e) # إرجاع الخطأ الفعلي
 
 # ================= دالة إصلاح النص العربي =================
 def fix_arabic(text):
@@ -88,14 +103,6 @@ CHANNELS = [
     {"url": "https://www.youtube.com/@abdullahshaab1/videos", "name": "عبدالله شعبان"},
     {"url": "https://www.youtube.com/@9li9/videos", "name": "عبدالرحمن مسعد"}
 ]
-
-# ================= نظام إشعارات تليجرام =================
-def send_telegram_alert(message):
-    if not ERROR_BOT_TOKEN or not ADMIN_CHAT_ID: return
-    url = f"https://api.telegram.org/bot{ERROR_BOT_TOKEN}/sendMessage"
-    payload = {"chat_id": ADMIN_CHAT_ID, "text": message, "parse_mode": "Markdown"}
-    try: requests.post(url, data=payload)
-    except Exception: pass
 
 def load_history():
     if os.path.exists(HISTORY_FILE):
@@ -117,7 +124,7 @@ def setup_cookies():
         return "cookies.txt"
     return None
 
-# ================= بروتوكول السرب الشامل (الذاكرة الذكية) =================
+# ================= بروتوكول السرب الشامل =================
 def fetch_and_trim_audio():
     history = load_history()
     cookie_file = setup_cookies()
@@ -140,7 +147,6 @@ def fetch_and_trim_audio():
                 info = ydl.extract_info(channel['url'], download=False)
                 entries_to_check = info.get('entries', [])
                 
-                # --- فلتر يوم الخميس للبحث عن سورة الكهف ---
                 if is_thursday:
                     kahf_entries = [e for e in entries_to_check if "الكهف" in e.get('title', '')]
                     if kahf_entries:
@@ -155,7 +161,6 @@ def fetch_and_trim_audio():
                     if not vid_id or not title or duration_sec == 0: continue
                     if any(word.lower() in title.lower() for word in forbidden_keywords): continue
                     
-                    # --- الذكاء: فحص الذاكرة لمنع حرق المقاطع الطويلة ---
                     saved_time = history['youtube_clips'].get(vid_id, 0.0)
                     if saved_time >= (duration_sec - 60): 
                         continue
@@ -177,7 +182,6 @@ def fetch_and_trim_audio():
     downloaded = False
     print("\n🚀 تفعيل بروتوكول السرب للتحميل...")
     
-    # المحاولة 1: التخفي المحلي المحدث لدعم الكوكيز بشكل شامل
     ydl_opts_dl = {
         'format': 'ba/b/18/17/mp4/best',
         'outtmpl': 'raw_audio.%(ext)s', 'quiet': True,
@@ -192,7 +196,6 @@ def fetch_and_trim_audio():
             print("🎉 تم التحميل بنجاح محلياً!")
     except Exception as e: print(f"❌ فشل المحلي: {e}")
 
-    # المحاولة 2: Cobalt السحابي
     if not downloaded:
         try:
             headers = {"Accept": "application/json", "Content-Type": "application/json"}
@@ -203,10 +206,8 @@ def fetch_and_trim_audio():
                 if len(audio_data) > 50000:
                     with open("raw_audio.mp3", "wb") as f: f.write(audio_data)
                     downloaded = True
-                    print("🎉 تم التحميل بنجاح عبر Cobalt السحابي!")
         except: pass
 
-    # المحاولة 3: Loader السحابي
     if not downloaded:
         try:
             res = requests.get(f"https://loader.to/ajax/download.php?format=mp3&url={video_url}", timeout=20).json()
@@ -220,7 +221,6 @@ def fetch_and_trim_audio():
                         if len(audio_data) > 50000:
                             with open("raw_audio.mp3", "wb") as f: f.write(audio_data)
                             downloaded = True
-                            print("🎉 تم التحميل بنجاح عبر Loader السحابي!")
                             break
         except: pass
 
@@ -231,7 +231,6 @@ def fetch_and_trim_audio():
     
     full_audio_clip = AudioFileClip("raw_audio.mp3")
     
-    # أخذ عينة دقيقتين من نقطة التوقف السابقة
     analysis_end = min(start_time_for_clip + 150.0, full_audio_clip.duration)
     analysis_subclip = full_audio_clip.subclip(start_time_for_clip, analysis_end)
     analysis_subclip.write_audiofile("temp_analysis.mp3", logger=None)
@@ -241,23 +240,27 @@ def fetch_and_trim_audio():
     try: os.remove("temp_analysis.mp3")
     except: pass
 
-    # --- تطبيق القص الذكي (Gemini + الفولباك الكلاسيكي) ---
     print("🧠 جاري إرسال النص لـ Gemini لضبط الآيات بدقة...")
-    rel_start, rel_end = get_smart_timestamps(segments_list)
+    # إرسال النص واستقبال الأوقات ورسالة الخطأ إن وجدت
+    rel_start, rel_end, gemini_error = get_smart_timestamps(segments_list)
     
     if rel_start is not None and rel_end is not None:
         print(f"✨ نجح Gemini في تحديد الآيات! البداية: {rel_start}، النهاية: {rel_end}")
         absolute_start = start_time_for_clip + rel_start
         absolute_end = start_time_for_clip + rel_end
     else:
-        print("⚠️ فشل Gemini أو المفتاح مفقود. سيتم استخدام القص الكلاسيكي (نظام الصمت)...")
+        # --- الفولباك الكلاسيكي مع إرسال إشعار العطل لتليجرام ---
+        print("⚠️ فشل Gemini، سيتم الانتقال للنظام الكلاسيكي (القص التلقائي)...")
+        error_msg = gemini_error if gemini_error else "عطل غير معروف في تحليل النص."
+        alert_text = f"⚠️ *تنبيه من نظام القص الذكي (Gemini)*\n\nواجه البوت مشكلة مع Gemini وتم استخدام القص الآلي القديم كبديل لضمان عدم توقف العمل.\n\n*السبب التقني:*\n`{error_msg}`"
+        send_telegram_alert(alert_text)
+        
         relative_start = 0.0
         if start_time_for_clip == 0.0:
             intro_keywords = ["بسم الله", "أعوذ بالله", "الحمد لله", "رب العالمين"]
             for segment in segments_list:
                 if any(word in segment.text for word in intro_keywords) and segment.start < 60.0:
                     relative_start = segment.start
-                    print(f"✅ تم تخطي المقدمة.")
                     break
 
         relative_end = min(relative_start + 60.0, analysis_subclip.duration)
@@ -275,7 +278,6 @@ def fetch_and_trim_audio():
         absolute_start = start_time_for_clip + relative_start
         absolute_end = start_time_for_clip + relative_end
 
-    # --- تحديث الذاكرة للنقطة الجديدة ---
     history['youtube_clips'][vid_id] = absolute_end
     
     final_audio_duration = absolute_end - absolute_start
@@ -290,12 +292,11 @@ def fetch_and_trim_audio():
     
     return final_audio_duration, video_title, vid_id, selected_reciter, history
 
-# ================= 3. جلب فيديوهات الطبيعة (الدوران الذكي) =================
+# ================= 3. جلب فيديوهات الطبيعة =================
 def fetch_pexels_videos(target_duration, history):
     today = datetime.now().strftime("%A")
     query = "drone landscape, nature" if today in ['Sunday', 'Tuesday', 'Thursday'] else "clouds, peaceful nature"
     
-    # البحث في صفحات عشوائية لتنويع النتائج
     random_page = random.randint(1, 3)
     headers = {"Authorization": PEXELS_API_KEY}
     url = f"https://api.pexels.com/videos/search?query={query}&orientation=portrait&size=large&per_page=30&page={random_page}"
@@ -328,13 +329,12 @@ def fetch_pexels_videos(target_duration, history):
         
     return video_files, history
 
-# ================= 4. المونتاج السينمائي (النص المخفف) =================
+# ================= 4. المونتاج السينمائي =================
 def render_cinematic_video(audio_duration, clips_data):
     clips = [data[0] for data in clips_data]
     final_video = concatenate_videoclips(clips, method="compose", padding=-1).subclip(0, audio_duration)
     dark_overlay = ColorClip(size=final_video.size, color=(0,0,0)).set_opacity(0.35).set_duration(audio_duration)
     
-    # --- إبقاء عنوان عافية قلب فقط وإزالة اسم القارئ ---
     box_width = int(final_video.w * 0.9)
     reshaped_main_title = fix_arabic("عافية قلب")
     
@@ -364,7 +364,6 @@ def publish_to_instagram(reciter_name, title):
 
     if not IG_USERNAME or not IG_PASSWORD: raise Exception("الـ Secrets مفقودة!")
     
-    # --- الوصف المخصص ليوم الخميس (ليلة الجمعة) ---
     is_thursday = datetime.now().strftime("%A") == "Thursday"
     if is_thursday:
         caption = f"✨ سورة الكهف نور ما بين الجمعتين. لا تنسوا السنن والصلاة على النبي ﷺ.\n\nتلاوة القارئ: {reciter_name} 🤍\n#سورة_الكهف #يوم_الجمعة #قرآن #عافية_قلب"
@@ -409,7 +408,6 @@ if __name__ == "__main__":
             render_cinematic_video(dur, clips_data)
             publish_to_instagram(reciter, title)
             
-            # حفظ الذاكرة الشاملة المحدثة (يوتيوب وبيكسلز)
             save_history(updated_history)
             send_telegram_alert("✅ تم النشر بنجاح كامل!")
             break 
