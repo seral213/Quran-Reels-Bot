@@ -37,6 +37,7 @@ jobs:
         ERROR_BOT_TOKEN: ${{ secrets.ERROR_BOT_TOKEN }}
         ADMIN_CHAT_ID: ${{ secrets.ADMIN_CHAT_ID }}
         YOUTUBE_COOKIES: ${{ secrets.YOUTUBE_COOKIES }}
+        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       run: python bot.py
 
     - name: حفظ الذاكرة وجلسة إنستجرام الآمنة
@@ -44,7 +45,6 @@ jobs:
         git config --global user.name "QuranBot"
         git config --global user.email "bot@example.com"
         git add history.json
-        # هذا السطر الذكي يرفع الجلسة فقط إذا تم إنشاؤها بنجاح
         if [ -f session.json ]; then git add session.json; fi
         git commit -m "تحديث الذاكرة وحفظ جلسة إنستجرام" || echo "لا يوجد تحديث جديد"
         git push
