@@ -138,7 +138,6 @@ def fetch_and_trim_audio():
     
     available_videos_pool = []
     
-    # 1. جرد شامل لجميع القنوات والفيديوهات
     print("جاري فحص مخزون الفيديوهات في القنوات...")
     with YoutubeDL(ydl_opts_flat) as ydl:
         for channel in CHANNELS:
@@ -166,14 +165,12 @@ def fetch_and_trim_audio():
                         
             except Exception as e: print(f"خطأ أثناء فحص قناة {channel['name']}: {e}")
 
-    # 2. نظام التنبيه بانتهاء المخزون
     remaining_count = len(available_videos_pool)
     if remaining_count == 0:
         raise Exception("❌ انتهت جميع الفيديوهات الصالحة في القنوات المحددة! يرجى إضافة قنوات جديدة أو مسح الذاكرة لتدوير السور.")
     elif remaining_count <= 3:
         send_telegram_alert(f"🔔 *تنبيه قرب انتهاء المخزون!*\n\nمتبقي {remaining_count} فيديوهات صالحة فقط للقص في القنوات المحددة.\nهل ترغب في إضافة قنوات جديدة أو تدوير السور (مسح الذاكرة) قريباً؟")
 
-    # اختيار مقطع عشوائي من المخزون المتاح لضمان التنوع
     selected = random.choice(available_videos_pool)
     selected_video = selected[0]
     selected_reciter = selected[1]
@@ -187,10 +184,21 @@ def fetch_and_trim_audio():
     downloaded = False
     print("\n🚀 تفعيل بروتوكول السرب للتحميل (الكوكيز أولاً)...")
     
-    # المحاولة 1: التخفي المحلي مع الكوكيز (السلاح الرسمي)
+    # --- المكنسة الآلية لتنظيف الملفات المعطوبة السابقة ---
+    for f in ["raw_audio.mp3", "raw_audio.m4a", "raw_audio.webm", "temp_analysis.mp3"]:
+        try: os.remove(f)
+        except: pass
+    
+    # --- التخفي المحلي مع التحويل الإجباري إلى mp3 ---
     ydl_opts_dl = {
-        'format': 'ba/b/18/17/mp4/best',
-        'outtmpl': 'raw_audio.%(ext)s', 'quiet': True,
+        'format': 'bestaudio/best',
+        'outtmpl': 'raw_audio.%(ext)s', 
+        'postprocessors': [{
+            'key': 'FFmpegExtractAudio',
+            'preferredcodec': 'mp3',
+            'preferredquality': '192',
+        }],
+        'quiet': True,
         'impersonate': 'chrome', 
         'extractor_args': {'youtube': ['player_client=android,ios,tv,web']},
     }
@@ -199,16 +207,18 @@ def fetch_and_trim_audio():
     try:
         with YoutubeDL(ydl_opts_dl) as ydl_dl:
             ydl_dl.download([video_url])
-            downloaded = True
-            print("🎉 تم التحميل بنجاح محلياً عبر الكوكيز!")
+            # فحص صارم لحجم الملف للتأكد أنه ليس معطوباً
+            if os.path.exists("raw_audio.mp3") and os.path.getsize("raw_audio.mp3") > 50000:
+                downloaded = True
+                print("🎉 تم التحميل بنجاح محلياً عبر الكوكيز!")
+            else:
+                print("⚠️ التحميل نجح لكن الملف الناتج معطوب أو غير موجود.")
     except Exception as e:
         error_msg = str(e).lower()
         print(f"❌ فشل المحلي: {error_msg}")
-        # نظام التشخيص للكوكيز
         if "sign in" in error_msg or "cookie" in error_msg or "bot" in error_msg:
             send_telegram_alert("⚠️ *تنبيه حماية يوتيوب:*\n\nيبدو أن يوتيوب رفض الكوكيز الحالية (انتهت صلاحيتها أو تم حظرها).\nيرجى استخراج `YOUTUBE_COOKIES` جديدة وتحديثها في إعدادات GitHub.")
 
-    # المحاولة 2: السحابي الأول (Cobalt)
     if not downloaded:
         print("2️⃣ جاري محاولة التحميل عبر Cobalt السحابي...")
         try:
@@ -223,7 +233,6 @@ def fetch_and_trim_audio():
                     print("🎉 تم التحميل بنجاح عبر Cobalt السحابي!")
         except: pass
 
-    # المحاولة 3: السحابي الثاني (Loader)
     if not downloaded:
         print("3️⃣ جاري محاولة التحميل عبر Loader السحابي...")
         try:
@@ -433,7 +442,6 @@ if __name__ == "__main__":
             print(f"\n❌ حدث خطأ في المحاولة {attempt}:\n{error_details}")
             
             if attempt < max_retries:
-                # إرسال إشعار تفصيلي لسبب الفشل قبل الانتظار
                 alert_text = f"⚠️ *فشل (المحاولة {attempt})*\nجاري انتظار 3 دقائق والمحاولة مجدداً...\n\n*السبب:* `{error_msg}`"
                 send_telegram_alert(alert_text)
                 time.sleep(180)
