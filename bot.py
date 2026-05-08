@@ -6,7 +6,7 @@ import requests
 import traceback
 import sys
 import re
-import glob # مكتبة جديدة للتعامل مع مسارات الملفات
+import glob
 from datetime import datetime
 from yt_dlp import YoutubeDL
 from faster_whisper import WhisperModel
@@ -47,14 +47,11 @@ def send_telegram_alert(message):
     try: requests.post(url, data=payload)
     except Exception: pass
 
-# ================= دالة مفتش الجودة (الجديدة) =================
+# ================= دالة مفتش الجودة =================
 def is_valid_audio(filepath):
-    """تقوم بفحص الملف بعد تحميله للتأكد من أنه ملف صوتي حقيقي وليس معطوباً أو صفحة ويب"""
     try:
         if not os.path.exists(filepath): return False
-        if os.path.getsize(filepath) < 50000: return False # إذا كان أصغر من 50 كيلوبايت فهو غالباً وهمي
-        
-        # تجربة فتح الملف برمجياً للتأكد من سلامته
+        if os.path.getsize(filepath) < 50000: return False 
         clip = AudioFileClip(filepath)
         dur = clip.duration
         clip.close()
@@ -196,14 +193,13 @@ def fetch_and_trim_audio():
     print(f"تم اختيار: {video_title}\nيبدأ القص من الدقيقة: {start_time_for_clip/60:.2f}")
     
     downloaded_file = None
-    print("\n🚀 تفعيل بروتوكول السرب للتحميل (الكوكيز أولاً)...")
+    print("\n🚀 تفعيل بروتوكول السرب للتحميل...")
     
-    # تنظيف الملفات القديمة المعطوبة قبل البدء
     for f in glob.glob("raw_audio.*") + ["temp_analysis.mp3", "final_audio.mp3"]:
         try: os.remove(f)
         except: pass
     
-    # المحاولة 1: التخفي المحلي مع الكوكيز (سحب أفضل صيغة متاحة بدون إجبار التحويل)
+    # المحاولة 1: التخفي المحلي مع الكوكيز
     ydl_opts_dl = {
         'format': 'm4a/bestaudio/best',
         'outtmpl': 'raw_audio.%(ext)s', 
@@ -217,24 +213,49 @@ def fetch_and_trim_audio():
         with YoutubeDL(ydl_opts_dl) as ydl_dl:
             ydl_dl.download([video_url])
         
-        # البحث عن الملف الناتج وتفتيشه
         downloaded_files = glob.glob("raw_audio.*")
         if downloaded_files and is_valid_audio(downloaded_files[0]):
             downloaded_file = downloaded_files[0]
             print(f"🎉 تم التحميل بنجاح محلياً! ({downloaded_file})")
         else:
-            print("⚠️ التحميل المحلي أنتج ملفاً معطوباً، سيتم حذفه والانتقال للسحابة.")
             if downloaded_files: os.remove(downloaded_files[0])
-            
     except Exception as e:
         error_msg = str(e).lower()
-        print(f"❌ فشل المحلي: {error_msg}")
         if "sign in" in error_msg or "cookie" in error_msg or "bot" in error_msg:
-            send_telegram_alert("⚠️ *تنبيه حماية يوتيوب:*\n\nيوتيوب يرفض الكوكيز الحالية. يرجى تحديثها في GitHub.")
+            send_telegram_alert("⚠️ *تنبيه حماية يوتيوب:*\nيوتيوب يرفض الكوكيز الحالية. يرجى تحديثها في GitHub.")
 
-    # المحاولة 2: السحابي الأول (Cobalt)
+    # المحاولة 2: السلاح الجديد (أسطول Piped السري)
     if not downloaded_file:
-        print("2️⃣ جاري محاولة التحميل عبر Cobalt السحابي...")
+        print("2️⃣ جاري محاولة التحميل عبر سيرفرات Piped السرية...")
+        piped_instances = [
+            "https://pipedapi.kavin.rocks",
+            "https://pipedapi.tokhmi.xyz",
+            "https://pipedapi.smnz.de",
+            "https://piped-api.garudalinux.org"
+        ]
+        random.shuffle(piped_instances)
+        
+        for instance in piped_instances:
+            try:
+                res = requests.get(f"{instance}/streams/{vid_id}", timeout=15).json()
+                audio_streams = res.get("audioStreams", [])
+                if audio_streams:
+                    # سحب أعلى جودة صوت متوفرة
+                    best_stream = audio_streams[-1]['url']
+                    audio_data = requests.get(best_stream, timeout=300).content
+                    with open("raw_audio.m4a", "wb") as f: f.write(audio_data)
+                    
+                    if is_valid_audio("raw_audio.m4a"):
+                        downloaded_file = "raw_audio.m4a"
+                        print(f"🎉 تم التحميل بنجاح عبر Piped ({instance})!")
+                        break
+                    else:
+                        os.remove("raw_audio.m4a")
+            except: continue
+
+    # المحاولة 3: Cobalt הסحابي
+    if not downloaded_file:
+        print("3️⃣ جاري محاولة التحميل عبر Cobalt السحابي...")
         try:
             headers = {"Accept": "application/json", "Content-Type": "application/json"}
             payload = {"url": video_url, "isAudioOnly": True, "aFormat": "mp3"}
@@ -243,17 +264,16 @@ def fetch_and_trim_audio():
                 audio_data = requests.get(res.json().get('url'), timeout=300).content
                 with open("raw_audio.mp3", "wb") as f: f.write(audio_data)
                 
-                # تفتيش الجودة
                 if is_valid_audio("raw_audio.mp3"):
                     downloaded_file = "raw_audio.mp3"
-                    print("🎉 تم التحميل بنجاح عبر Cobalt הסحابي!")
+                    print("🎉 تم التحميل بنجاح عبر Cobalt السحابي!")
                 else:
                     os.remove("raw_audio.mp3")
         except: pass
 
-    # المحاولة 3: السحابي الثاني (Loader)
+    # المحاولة 4: Loader السحابي
     if not downloaded_file:
-        print("3️⃣ جاري محاولة التحميل عبر Loader السحابي...")
+        print("4️⃣ جاري محاولة التحميل عبر Loader السحابي...")
         try:
             res = requests.get(f"https://loader.to/ajax/download.php?format=mp3&url={video_url}", timeout=20).json()
             job_id = res.get("id")
@@ -265,7 +285,6 @@ def fetch_and_trim_audio():
                         audio_data = requests.get(status.get("download_url"), timeout=300).content
                         with open("raw_audio.mp3", "wb") as f: f.write(audio_data)
                         
-                        # تفتيش الجودة
                         if is_valid_audio("raw_audio.mp3"):
                             downloaded_file = "raw_audio.mp3"
                             print("🎉 تم التحميل بنجاح عبر Loader הסحابي!")
@@ -275,12 +294,11 @@ def fetch_and_trim_audio():
         except: pass
 
     if not downloaded_file: 
-        raise Exception("جميع الأسراب السحابية والمحلية فشلت أو أعطت ملفات معطوبة! يوتيوب يحظر السيرفر بقوة اليوم.")
+        raise Exception("جميع الأسراب السحابية والمحلية (بما فيها Piped) فشلت أو أعطت ملفات معطوبة! يوتيوب يحظر السيرفر بقوة اليوم.")
 
     print("🧠 جاري تحليل الصوت بالذكاء الاصطناعي...")
     model = WhisperModel("base", device="cpu", compute_type="int8")
     
-    # نستخدم الملف الذي اجتاز فحص الجودة بنجاح
     full_audio_clip = AudioFileClip(downloaded_file)
     
     analysis_end = min(start_time_for_clip + 150.0, full_audio_clip.duration)
@@ -337,7 +355,6 @@ def fetch_and_trim_audio():
     final_audio.close()
     full_audio_clip.close()
     
-    # تنظيف الملف الأساسي بعد الانتهاء
     try: os.remove(downloaded_file)
     except: pass
     
@@ -447,7 +464,7 @@ def publish_to_instagram(reciter_name, title):
     except Exception as e:
         raise Exception(f"❌ فشل النشر: {str(e)}")
 
-# ================= التشغيل الرئيسي (نظام الإلحاح) =================
+# ================= التشغيل الرئيسي =================
 if __name__ == "__main__":
     max_retries = 3 
     for attempt in range(1, max_retries + 1):
