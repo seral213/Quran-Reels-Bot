@@ -47,22 +47,10 @@ def send_telegram_alert(message):
     try: requests.post(url, data=payload)
     except Exception: pass
 
-# ================= دالة مفتش الجودة =================
-def is_valid_audio(filepath):
-    try:
-        if not os.path.exists(filepath): return False
-        if os.path.getsize(filepath) < 50000: return False 
-        clip = AudioFileClip(filepath)
-        dur = clip.duration
-        clip.close()
-        return dur > 0
-    except:
-        return False
-
-# ================= دالة القص الذكي عبر Gemini =================
+# ================= دالة القص الذكي عبر Gemini (نسخة "صياد الموديلات") =================
 def get_smart_timestamps(transcript_segments):
     if not GEMINI_API_KEY:
-        return None, None, "مفتاح GEMINI_API_KEY غير موجود."
+        return None, None, "مفتاح GEMINI_API_KEY غير موجود في إعدادات GitHub."
 
     full_text_with_time = ""
     for seg in transcript_segments:
@@ -82,28 +70,43 @@ def get_smart_timestamps(transcript_segments):
     END: رقم
     """
     
-    try:
-        # قمت بتغيير الموديل إلى gemini-pro لضمان الاستقرار والعمل الفوري
-        model = genai.GenerativeModel('gemini-pro')
-        response = model.generate_content(prompt)
-        start, end = None, None
-        
-        match_start = re.search(r'START:\s*([0-9.]+)', response.text)
-        match_end = re.search(r'END:\s*([0-9.]+)', response.text)
-        
-        if match_start: 
-            start = float(match_start.group(1))
-        if match_end: 
-            end = float(match_end.group(1))
-            end += 1.5 
-            
-        if start is not None and end is not None:
-            return start, end, None
-        else:
-            return None, None, "فشل الذكاء الاصطناعي في تحديد الأوقات من النص."
-    except Exception as e:
-        return None, None, str(e)
+    # قائمة بأسماء الموديلات المحتملة لتجربتها واحداً تلو الآخر
+    model_names = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro']
+    last_error = ""
 
+    for name in model_names:
+        try:
+            print(f"🔄 جاري محاولة استخدام الموديل: {name}...")
+            model = genai.GenerativeModel(name)
+            response = model.generate_content(prompt)
+            
+            match_start = re.search(r'START:\s*([0-9.]+)', response.text)
+            match_end = re.search(r'END:\s*([0-9.]+)', response.text)
+            
+            if match_start and match_end:
+                start = float(match_start.group(1))
+                end = float(match_end.group(1))
+                end += 1.5 # وسادة صوتية لصدى الصوت
+                print(f"✅ نجح الموديل {name} في تحليل النص!")
+                return start, end, None
+        except Exception as e:
+            last_error = str(e)
+            print(f"⚠️ الموديل {name} لم يستجب: {last_error}")
+            continue # تجربة الموديل التالي في القائمة
+
+    return None, None, f"فشلت جميع الموديلات المتاحة. الخطأ الأخير: {last_error}"
+
+# ================= دالة مفتش الجودة =================
+def is_valid_audio(filepath):
+    try:
+        if not os.path.exists(filepath): return False
+        if os.path.getsize(filepath) < 50000: return False 
+        clip = AudioFileClip(filepath)
+        dur = clip.duration
+        clip.close()
+        return dur > 0
+    except:
+        return False
 
 # ================= دالة إصلاح النص العربي =================
 def fix_arabic(text):
@@ -180,9 +183,9 @@ def fetch_and_trim_audio():
 
     remaining_count = len(available_videos_pool)
     if remaining_count == 0:
-        raise Exception("❌ انتهت جميع الفيديوهات الصالحة في القنوات المحددة! يرجى إضافة قنوات جديدة أو مسح الذاكرة.")
+        raise Exception("❌ انتهت جميع الفيديوهات الصالحة في القنوات المحددة!")
     elif remaining_count <= 3:
-        send_telegram_alert(f"🔔 *تنبيه قرب انتهاء المخزون!*\n\nمتبقي {remaining_count} فيديوهات صالحة فقط. هل ترغب في تدوير السور قريباً؟")
+        send_telegram_alert(f"🔔 *تنبيه قرب انتهاء المخزون!*\nمتبقي {remaining_count} فيديوهات فقط.")
 
     selected = random.choice(available_videos_pool)
     selected_video = selected[0]
@@ -223,41 +226,30 @@ def fetch_and_trim_audio():
             if downloaded_files: os.remove(downloaded_files[0])
     except Exception as e:
         error_msg = str(e).lower()
-        if "sign in" in error_msg or "cookie" in error_msg or "bot" in error_msg:
-            send_telegram_alert("⚠️ *تنبيه حماية يوتيوب:*\nيوتيوب يرفض الكوكيز الحالية. يرجى تحديثها في GitHub.")
+        if "sign in" in error_msg or "cookie" in error_msg:
+            send_telegram_alert("⚠️ *تنبيه يوتيوب:* يرجى تحديث الكوكيز.")
 
-    # المحاولة 2: السلاح الجديد (أسطول Piped السري)
+    # المحاولة 2: سيرفرات Piped السرية
     if not downloaded_file:
-        print("2️⃣ جاري محاولة التحميل عبر سيرفرات Piped السرية...")
-        piped_instances = [
-            "https://pipedapi.kavin.rocks",
-            "https://pipedapi.tokhmi.xyz",
-            "https://pipedapi.smnz.de",
-            "https://piped-api.garudalinux.org"
-        ]
+        print("2️⃣ جاري محاولة التحميل عبر سيرفرات Piped...")
+        piped_instances = ["https://pipedapi.kavin.rocks", "https://pipedapi.tokhmi.xyz", "https://pipedapi.smnz.de"]
         random.shuffle(piped_instances)
-        
         for instance in piped_instances:
             try:
                 res = requests.get(f"{instance}/streams/{vid_id}", timeout=15).json()
                 audio_streams = res.get("audioStreams", [])
                 if audio_streams:
-                    # سحب أعلى جودة صوت متوفرة
                     best_stream = audio_streams[-1]['url']
                     audio_data = requests.get(best_stream, timeout=300).content
                     with open("raw_audio.m4a", "wb") as f: f.write(audio_data)
-                    
                     if is_valid_audio("raw_audio.m4a"):
-                        downloaded_file = "raw_audio.m4a"
-                        print(f"🎉 تم التحميل بنجاح عبر Piped ({instance})!")
-                        break
-                    else:
-                        os.remove("raw_audio.m4a")
+                        downloaded_file = "raw_audio.m4a"; break
+                    else: os.remove("raw_audio.m4a")
             except: continue
 
-    # المحاولة 3: Cobalt הסحابي
+    # المحاولة 3: Cobalt و Loader السحابي
     if not downloaded_file:
-        print("3️⃣ جاري محاولة التحميل عبر Cobalt السحابي...")
+        print("3️⃣ جاري تجربة المحاور السحابية...")
         try:
             headers = {"Accept": "application/json", "Content-Type": "application/json"}
             payload = {"url": video_url, "isAudioOnly": True, "aFormat": "mp3"}
@@ -265,44 +257,17 @@ def fetch_and_trim_audio():
             if res.status_code == 200 and res.json().get('url'):
                 audio_data = requests.get(res.json().get('url'), timeout=300).content
                 with open("raw_audio.mp3", "wb") as f: f.write(audio_data)
-                
-                if is_valid_audio("raw_audio.mp3"):
-                    downloaded_file = "raw_audio.mp3"
-                    print("🎉 تم التحميل بنجاح عبر Cobalt السحابي!")
-                else:
-                    os.remove("raw_audio.mp3")
-        except: pass
-
-    # المحاولة 4: Loader السحابي
-    if not downloaded_file:
-        print("4️⃣ جاري محاولة التحميل عبر Loader السحابي...")
-        try:
-            res = requests.get(f"https://loader.to/ajax/download.php?format=mp3&url={video_url}", timeout=20).json()
-            job_id = res.get("id")
-            if job_id:
-                for _ in range(60): 
-                    time.sleep(5)
-                    status = requests.get(f"https://loader.to/ajax/progress.php?id={job_id}", timeout=15).json()
-                    if status.get("text") == "Finished":
-                        audio_data = requests.get(status.get("download_url"), timeout=300).content
-                        with open("raw_audio.mp3", "wb") as f: f.write(audio_data)
-                        
-                        if is_valid_audio("raw_audio.mp3"):
-                            downloaded_file = "raw_audio.mp3"
-                            print("🎉 تم التحميل بنجاح عبر Loader הסحابي!")
-                        else:
-                            os.remove("raw_audio.mp3")
-                        break
+                if is_valid_audio("raw_audio.mp3"): downloaded_file = "raw_audio.mp3"
+                else: os.remove("raw_audio.mp3")
         except: pass
 
     if not downloaded_file: 
-        raise Exception("جميع الأسراب السحابية والمحلية (بما فيها Piped) فشلت أو أعطت ملفات معطوبة! يوتيوب يحظر السيرفر بقوة اليوم.")
+        raise Exception("جميع الأسراب فشلت في التحميل اليوم!")
 
     print("🧠 جاري تحليل الصوت بالذكاء الاصطناعي...")
     model = WhisperModel("base", device="cpu", compute_type="int8")
     
     full_audio_clip = AudioFileClip(downloaded_file)
-    
     analysis_end = min(start_time_for_clip + 150.0, full_audio_clip.duration)
     analysis_subclip = full_audio_clip.subclip(start_time_for_clip, analysis_end)
     analysis_subclip.write_audiofile("temp_analysis.mp3", logger=None)
@@ -312,51 +277,38 @@ def fetch_and_trim_audio():
     try: os.remove("temp_analysis.mp3")
     except: pass
 
-    print("🧠 جاري إرسال النص لـ Gemini لضبط الآيات بدقة...")
+    # القص الاحترافي عبر Gemini الصياد
     rel_start, rel_end, gemini_error = get_smart_timestamps(segments_list)
     
     if rel_start is not None and rel_end is not None:
-        print(f"✨ نجح Gemini في تحديد الآيات! البداية: {rel_start}، النهاية: {rel_end}")
         absolute_start = start_time_for_clip + rel_start
         absolute_end = start_time_for_clip + rel_end
     else:
-        print("⚠️ فشل Gemini، سيتم الانتقال للنظام الكلاسيكي...")
-        error_msg = gemini_error if gemini_error else "عطل غير معروف."
-        send_telegram_alert(f"⚠️ *تنبيه Gemini:*\nتم استخدام القص الآلي القديم كبديل.\nالسبب التقني:\n`{error_msg}`")
-        
+        send_telegram_alert(f"⚠️ *تنبيه:* Gemini فشل في كل المحاولات. تم استخدام القص التلقائي.\nالسبب: `{gemini_error}`")
         relative_start = 0.0
         if start_time_for_clip == 0.0:
             intro_keywords = ["بسم الله", "أعوذ بالله", "الحمد لله", "رب العالمين"]
             for segment in segments_list:
                 if any(word in segment.text for word in intro_keywords) and segment.start < 60.0:
-                    relative_start = segment.start
-                    break
-
+                    relative_start = segment.start; break
         relative_end = min(relative_start + 60.0, analysis_subclip.duration)
         best_gap = 0
         for i in range(len(segments_list) - 1):
-            curr = segments_list[i]
-            nxt = segments_list[i+1]
+            curr = segments_list[i]; nxt = segments_list[i+1]
             if curr.end > (relative_start + 45.0) and curr.end < relative_end:
                 gap = nxt.start - curr.end
                 if gap > 1.2 and gap > best_gap:
-                    best_gap = gap
-                    relative_end = curr.end + (gap / 2)
-                    break
-
+                    best_gap = gap; relative_end = curr.end + (gap / 2); break
         absolute_start = start_time_for_clip + relative_start
         absolute_end = start_time_for_clip + relative_end
 
     history['youtube_clips'][vid_id] = absolute_end
-    
     final_audio_duration = absolute_end - absolute_start
     trimmed_audio = full_audio_clip.subclip(absolute_start, absolute_end)
     final_audio = trimmed_audio.audio_fadein(1.0).audio_fadeout(1.5)
     final_audio.write_audiofile("final_audio.mp3", logger=None)
     
-    final_audio.close()
-    full_audio_clip.close()
-    
+    final_audio.close(); full_audio_clip.close()
     try: os.remove(downloaded_file)
     except: pass
     
@@ -366,17 +318,13 @@ def fetch_and_trim_audio():
 def fetch_pexels_videos(target_duration, history):
     today = datetime.now().strftime("%A")
     query = "drone landscape, nature" if today in ['Sunday', 'Tuesday', 'Thursday'] else "clouds, peaceful nature"
-    
     random_page = random.randint(1, 3)
     headers = {"Authorization": PEXELS_API_KEY}
     url = f"https://api.pexels.com/videos/search?query={query}&orientation=portrait&size=large&per_page=30&page={random_page}"
     res_data = requests.get(url, headers=headers).json()
     
-    if 'videos' not in res_data: raise Exception(f"خطأ Pexels: {res_data}")
-        
     video_files = []
     current_duration = 0
-    
     for video in res_data['videos']:
         vid_id_str = str(video['id'])
         if vid_id_str in history['used_pexels']: continue
@@ -385,18 +333,13 @@ def fetch_pexels_videos(target_duration, history):
         link = video['video_files'][0]['link']
         vid_data = requests.get(link).content
         vid_name = f"bg_vid_{vid_id_str}.mp4"
-        
         with open(vid_name, "wb") as f: f.write(vid_data)
         clip = VideoFileClip(vid_name)
         video_files.append((clip, vid_name))
         current_duration += clip.duration
-        
         history['used_pexels'].append(vid_id_str)
-        if len(history['used_pexels']) > 60:
-            history['used_pexels'].pop(0)
-            
+        if len(history['used_pexels']) > 60: history['used_pexels'].pop(0)
         if current_duration >= target_duration: break
-        
     return video_files, history
 
 # ================= 4. المونتاج السينمائي =================
@@ -404,10 +347,8 @@ def render_cinematic_video(audio_duration, clips_data):
     clips = [data[0] for data in clips_data]
     final_video = concatenate_videoclips(clips, method="compose", padding=-1).subclip(0, audio_duration)
     dark_overlay = ColorClip(size=final_video.size, color=(0,0,0)).set_opacity(0.35).set_duration(audio_duration)
-    
     box_width = int(final_video.w * 0.9)
     reshaped_main_title = fix_arabic("عافية قلب")
-    
     txt_main = TextClip(reshaped_main_title, font="taj.ttf", fontsize=28, color='white', stroke_color='black', stroke_width=1, size=(box_width, None), method='caption', align='center')
     txt_main = txt_main.set_position('center').set_duration(audio_duration).crossfadein(1.0)
     
@@ -416,53 +357,32 @@ def render_cinematic_video(audio_duration, clips_data):
     video_with_audio.audio = AudioFileClip("final_audio.mp3")
     video_with_audio.write_videofile("final_reel.mp4", fps=30, codec="libx264", audio_codec="aac", threads=4)
     
-    video_with_audio.close()
-    final_video.close()
-    dark_overlay.close()
+    video_with_audio.close(); final_video.close(); dark_overlay.close()
     for clip, name in clips_data:
         try: os.remove(name)
         except: pass
 
 # ================= 5. صمام النشر لإنستجرام =================
 def publish_to_instagram(reciter_name, title):
-    print("جاري الإرسال لتليجرام...")
     try:
         url_tg = f"https://api.telegram.org/bot{ERROR_BOT_TOKEN}/sendVideo"
         with open('final_reel.mp4', 'rb') as video_file:
             requests.post(url_tg, data={'chat_id': ADMIN_CHAT_ID, 'caption': f"🎥 مقطع جاهز!\n\nالقارئ: {reciter_name}\nالعنوان: {title}"}, files={'video': video_file}, timeout=200)
     except: pass
 
-    if not IG_USERNAME or not IG_PASSWORD: raise Exception("الـ Secrets مفقودة!")
-    
     is_thursday = datetime.now().strftime("%A") == "Thursday"
     if is_thursday:
         caption = f"✨ سورة الكهف نور ما بين الجمعتين. لا تنسوا السنن والصلاة على النبي ﷺ.\n\nتلاوة القارئ: {reciter_name} 🤍\n#سورة_الكهف #يوم_الجمعة #قرآن #عافية_قلب"
     else:
         caption = f"عافية لقلبك 🤍. أرح مسمعك بتلاوة القارئ {reciter_name}.\n\n#قرآن #تلاوة #عافية_قلب"
     
-    print("جاري تسجيل الدخول لإنستجرام...")
-    
     cl = Client()
-    cl.delay_range = [1, 3]
-
-    def login_process():
-        if os.path.exists(SESSION_FILE): cl.load_settings(SESSION_FILE)
-        try:
-            cl.login(IG_USERNAME, IG_PASSWORD)
-            return True
-        except ChallengeRequired:
-            alert = "⚠️ *تنبيه إنستجرام*\n\nيرجى الدخول لتطبيق إنستجرام والضغط على *'كنت أنا'*. البوت سينتظر دقيقتين ثم يعاود المحاولة."
-            send_telegram_alert(alert)
-            time.sleep(120)
-            cl.login(IG_USERNAME, IG_PASSWORD)
-            return True
-        except Exception as e: raise e
-
+    if os.path.exists(SESSION_FILE): cl.load_settings(SESSION_FILE)
     try:
-        if login_process():
-            cl.dump_settings(SESSION_FILE)
-            cl.clip_upload("final_reel.mp4", caption)
-            print("🎉 تم النشر بنجاح!")
+        cl.login(IG_USERNAME, IG_PASSWORD)
+        cl.dump_settings(SESSION_FILE)
+        cl.clip_upload("final_reel.mp4", caption)
+        print("🎉 تم النشر بنجاح!")
     except Exception as e:
         raise Exception(f"❌ فشل النشر: {str(e)}")
 
@@ -471,26 +391,18 @@ if __name__ == "__main__":
     max_retries = 3 
     for attempt in range(1, max_retries + 1):
         try:
-            print(f"\n🚀 --- بدء محاولة التشغيل {attempt}/{max_retries} ---")
-            
+            print(f"\n🚀 محاولة {attempt}/{max_retries}...")
             dur, title, vid_id, reciter, history = fetch_and_trim_audio()
             clips_data, updated_history = fetch_pexels_videos(dur, history)
             render_cinematic_video(dur, clips_data)
             publish_to_instagram(reciter, title)
-            
             save_history(updated_history)
-            send_telegram_alert("✅ تم النشر بنجاح كامل!")
+            send_telegram_alert("✅ تم النشر بنجاح!")
             break 
-            
         except Exception as e:
-            error_details = traceback.format_exc()
-            error_msg = str(e)
-            print(f"\n❌ حدث خطأ في المحاولة {attempt}:\n{error_details}")
-            
             if attempt < max_retries:
-                alert_text = f"⚠️ *فشل (المحاولة {attempt})*\nجاري انتظار 3 دقائق والمحاولة مجدداً...\n\n*السبب:* `{error_msg}`"
-                send_telegram_alert(alert_text)
+                send_telegram_alert(f"⚠️ فشل محاولة {attempt}. انتظار 3 دقائق...\nالسبب: `{str(e)}`")
                 time.sleep(180)
             else:
-                send_telegram_alert(f"🚨 *فشل نهائي بعد 3 محاولات*\n\n`{error_msg}`")
+                send_telegram_alert(f"🚨 فشل نهائي!\nالسبب: `{str(e)}`")
                 sys.exit(1)
