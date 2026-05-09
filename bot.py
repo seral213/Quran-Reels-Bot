@@ -45,7 +45,7 @@ def send_telegram_alert(message):
 def is_valid_audio(filepath):
     try:
         if not os.path.exists(filepath): return False
-        if os.path.getsize(filepath) < 50000: return False 
+        if os.path.getsize(filepath) < 50000: return False # الملف أصغر من 50 كيلو = وهمي
         clip = AudioFileClip(filepath)
         dur = clip.duration
         clip.close()
@@ -102,7 +102,7 @@ def get_smart_timestamps(transcript_segments):
             else:
                 return None, None, "لم يتمكن Gemini من استخراج الأرقام بالصيغة المطلوبة."
         else:
-            return None, None, f"خطأ في الاتصال المباشر: {response.status_code} - {response.text[:100]}"
+            return None, None, f"خطأ في الاتصال المباشر: {response.status_code}"
     except Exception as e:
         return None, None, str(e)
 
@@ -140,16 +140,29 @@ def setup_cookies():
         return "cookies.txt"
     return None
 
+# ================= الدالة الصارمة للتحميل المباشر من الروابط =================
+def download_url_safe(url, ext="mp3"):
+    try:
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+        r = requests.get(url, headers=headers, timeout=120, allow_redirects=True)
+        if r.status_code == 200 and len(r.content) > 100000: # يجب أن يكون أكبر من 100KB
+            fname = f"raw_audio_{random.randint(100,999)}.{ext}"
+            with open(fname, "wb") as f: f.write(r.content)
+            if is_valid_audio(fname): 
+                return fname
+            else: 
+                os.remove(fname)
+    except: pass
+    return None
+
 # ================= بروتوكول السرب الشامل وجرد المخزون =================
 def fetch_and_trim_audio():
     history = load_history()
     cookie_file = setup_cookies()
-    
     ydl_opts_flat = {'quiet': True, 'extract_flat': True}
     if cookie_file: ydl_opts_flat['cookiefile'] = cookie_file
     
     forbidden_keywords = ['أذكار', 'اذكار', 'الصباح', 'المساء', 'النوم', 'الاستيقاظ', 'رقية', 'شرعية', 'دعاء', 'أدعية', 'بث مباشر']
-    
     is_thursday = datetime.now().strftime("%A") == "Thursday"
     available_videos_pool = []
     
@@ -159,24 +172,20 @@ def fetch_and_trim_audio():
             try:
                 info = ydl.extract_info(channel['url'], download=False)
                 entries_to_check = info.get('entries', [])
-                
                 if is_thursday:
                     kahf_entries = [e for e in entries_to_check if "الكهف" in e.get('title', '')]
-                    if kahf_entries:
-                        entries_to_check = kahf_entries
+                    if kahf_entries: entries_to_check = kahf_entries
 
                 for entry in entries_to_check:
                     vid_id = entry.get('id', '')
                     title = entry.get('title', '')
                     duration_sec = entry.get('duration', 0)
-                    
                     if not vid_id or not title or duration_sec == 0: continue
                     if any(word.lower() in title.lower() for word in forbidden_keywords): continue
                     
                     saved_time = history['youtube_clips'].get(vid_id, 0.0)
                     if saved_time < (duration_sec - 60): 
                         available_videos_pool.append((entry, channel['name'], saved_time))
-                        
             except Exception as e: print(f"خطأ أثناء فحص قناة {channel['name']}: {e}")
 
     remaining_count = len(available_videos_pool)
@@ -196,87 +205,71 @@ def fetch_and_trim_audio():
     print(f"تم اختيار: {video_title}\nيبدأ القص من الدقيقة: {start_time_for_clip/60:.2f}")
     
     downloaded_file = None
-    print("\n🚀 تفعيل أسلحة الاختراق المتقدمة (الجيل الثالث)...")
     
-    for f in glob.glob("raw_audio.*") + ["temp_analysis.mp3", "final_audio.mp3"]:
+    # تنظيف شامل للملفات القديمة
+    for f in glob.glob("raw_audio*") + ["temp_analysis.mp3", "final_audio.mp3"]:
         try: os.remove(f)
         except: pass
 
-    # ================= 🏴‍☠️ الحلول العبقرية لتخطي الحظر =================
+    print("\n🚀 تفعيل دبابات الاختراق (أسلحة الجيل الرابع)...")
 
-    # السلاح الأول: ثغرة روبوتات الواتساب (Siputzx API)
+    # 1. اختراق عبر سيرفرات الواتساب الآسيوية (BK9 API)
     if not downloaded_file:
-        print("1️⃣ جاري سحب الصوت عبر ثغرة سيرفرات المراسلة (Siputzx)...")
+        print("1️⃣ جاري التحميل عبر شبكة BK9...")
         try:
-            res = requests.get(f"https://api.siputzx.my.id/api/d/ytmp3?url={video_url}", timeout=20).json()
-            if res.get("status") and res.get("data", {}).get("dl"):
-                audio_url = res["data"]["dl"]
-                audio_data = requests.get(audio_url, timeout=300).content
-                with open("raw_audio.mp3", "wb") as f: f.write(audio_data)
-                if is_valid_audio("raw_audio.mp3"):
-                    downloaded_file = "raw_audio.mp3"
-                    print("🎉 تم السحب بنجاح عبر ثغرة Siputzx!")
-        except Exception as e: print(f"فشل Siputzx: {e}")
+            res = requests.get(f"https://bk9.fun/download/ytmp3?q={video_url}", timeout=20).json()
+            if res.get("BK9", {}).get("url"): downloaded_file = download_url_safe(res["BK9"]["url"])
+        except: pass
 
-    # السلاح الثاني: ثغرة روبوتات الواتساب 2 (Ryzen API)
+    # 2. اختراق عبر سيرفرات DarkYasiya
     if not downloaded_file:
-        print("2️⃣ جاري سحب الصوت عبر ثغرة سيرفرات المراسلة 2 (Ryzen)...")
+        print("2️⃣ جاري التحميل عبر شبكة DarkYasiya...")
         try:
-            res = requests.get(f"https://api.ryzendesu.vip/api/downloader/ytmp3?url={video_url}", headers={"accept": "application/json"}, timeout=20).json()
-            audio_url = res.get("url") or res.get("data", {}).get("url")
-            if audio_url:
-                audio_data = requests.get(audio_url, timeout=300).content
-                with open("raw_audio.mp3", "wb") as f: f.write(audio_data)
-                if is_valid_audio("raw_audio.mp3"):
-                    downloaded_file = "raw_audio.mp3"
-                    print("🎉 تم السحب بنجاح عبر ثغرة Ryzen!")
-        except Exception as e: print(f"فشل Ryzen: {e}")
+            res = requests.get(f"https://dark-yasiya-api.site/download/ytmp3?url={video_url}", timeout=20).json()
+            if res.get("result", {}).get("dl_link"): downloaded_file = download_url_safe(res["result"]["dl_link"])
+        except: pass
 
-    # السلاح الثالث: مستنسخات Cobalt السرية (V7)
+    # 3. اختراق عبر سيرفرات Aemt (Y2Mate Bypass)
     if not downloaded_file:
-        print("3️⃣ جاري سحب الصوت عبر مستنسخات Cobalt السرية...")
-        headers = {
-            "Accept": "application/json", "Content-Type": "application/json",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-            "Origin": "https://cobalt.tools", "Referer": "https://cobalt.tools/"
-        }
-        payload = {"url": video_url, "audioFormat": "mp3", "downloadMode": "audio"}
-        clones = ["https://cobalt.kwiatekm.lol", "https://co.wuk.sh", "https://api.cobalt.tools"]
-        for clone in clones:
-            try:
-                res = requests.post(f"{clone}/", json=payload, headers=headers, timeout=20)
-                if res.status_code == 200 and res.json().get('url'):
-                    audio_data = requests.get(res.json().get('url'), timeout=300).content
-                    with open("raw_audio.mp3", "wb") as f: f.write(audio_data)
-                    if is_valid_audio("raw_audio.mp3"):
-                        downloaded_file = "raw_audio.mp3"
-                        print(f"🎉 تم السحب بنجاح عبر المستنسخ {clone}!")
-                        break
-            except: continue
-
-    # السلاح الرابع: yt-dlp مع تخفي نظارة الواقع الافتراضي (Android VR)
-    if not downloaded_file:
-        print("4️⃣ جاري التحميل عبر التخفي كنظارة واقع افتراضي (Android VR)...")
-        ydl_opts_dl = {
-            'format': 'ba/best',
-            'outtmpl': 'raw_audio.%(ext)s', 
-            'quiet': True,
-            'extractor_args': {'youtube': ['player_client=android_vr,tv']},
-        }
-        if cookie_file: ydl_opts_dl['cookiefile'] = cookie_file
-        
+        print("3️⃣ جاري التحميل عبر شبكة Aemt...")
         try:
-            with YoutubeDL(ydl_opts_dl) as ydl_dl:
-                ydl_dl.download([video_url])
-            downloaded_files = glob.glob("raw_audio.*")
-            if downloaded_files and is_valid_audio(downloaded_files[0]):
-                downloaded_file = downloaded_files[0]
-                print(f"🎉 تم التحميل بنجاح (Android VR)!")
-        except Exception as e:
-            print(f"فشل المحلي VR: {e}")
+            res = requests.get(f"https://aemt.me/youtube?url={video_url}", timeout=20).json()
+            if res.get("result", {}).get("mp3"): downloaded_file = download_url_safe(res["result"]["mp3"])
+        except: pass
+
+    # 4. اختراق عبر سيرفرات Ryzendesu
+    if not downloaded_file:
+        print("4️⃣ جاري التحميل عبر شبكة Ryzendesu...")
+        try:
+            res = requests.get(f"https://api.ryzendesu.vip/api/downloader/ytmp3?url={video_url}", timeout=20).json()
+            dl = res.get("url") or res.get("data", {}).get("url")
+            if dl: downloaded_file = download_url_safe(dl)
+        except: pass
+
+    # 5. التخفي عبر Cobalt الرسمي (بالبروتوكول الصارم)
+    if not downloaded_file:
+        print("5️⃣ جاري التحميل عبر Cobalt الرسمي...")
+        try:
+            headers = {"Accept": "application/json", "Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}
+            res = requests.post("https://api.cobalt.tools/", json={"url": video_url, "downloadMode": "audio"}, headers=headers, timeout=20)
+            if res.status_code == 200 and res.json().get("url"):
+                downloaded_file = download_url_safe(res.json().get("url"))
+        except: pass
+
+    # 6. سلاح أخير: yt-dlp المتخفي كمتصفح ويب عادي (MWEB)
+    if not downloaded_file:
+        print("6️⃣ جاري التحميل عبر سلاح yt-dlp المتخفي...")
+        try:
+            ydl_opts_dl = {'format': 'ba/best', 'outtmpl': 'raw_audio_yt.%(ext)s', 'quiet': True, 'extractor_args': {'youtube': ['player_client=mweb,default']}}
+            with YoutubeDL(ydl_opts_dl) as ydl_dl: ydl_dl.download([video_url])
+            files = glob.glob("raw_audio_yt.*")
+            if files and is_valid_audio(files[0]): downloaded_file = files[0]
+        except: pass
 
     if not downloaded_file: 
-        raise Exception("يوتيوب أغلق جميع المنافذ اليوم (حتى الثغرات السرية فشلت)!")
+        raise Exception("يوتيوب أغلق جميع المنافذ اليوم! (فشلت كل أسلحة الاختراق الـ 6).")
+
+    print(f"🎉 تم تأمين الملف بنجاح: {downloaded_file}")
 
     print("🧠 جاري تحليل الصوت بالذكاء الاصطناعي...")
     model = WhisperModel("base", device="cpu", compute_type="int8")
@@ -420,3 +413,4 @@ if __name__ == "__main__":
             else:
                 send_telegram_alert(f"🚨 فشل نهائي!\nالسبب: `{str(e)}`")
                 sys.exit(1)
+
