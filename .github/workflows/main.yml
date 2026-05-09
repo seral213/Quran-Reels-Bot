@@ -27,7 +27,7 @@ jobs:
     - name: تثبيت مكتبات بايثون وأسلحة التخفي
       run: |
         pip install -r requirements.txt
-        pip install -U --pre yt-dlp curl-cffi
+        pip install -U --pre yt-dlp curl-cffi pytubefix
 
     - name: تشغيل استوديو المونتاج والنشر
       env:
