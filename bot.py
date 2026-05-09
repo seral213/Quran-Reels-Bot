@@ -12,9 +12,6 @@ from yt_dlp import YoutubeDL
 from faster_whisper import WhisperModel
 from moviepy.editor import VideoFileClip, AudioFileClip, concatenate_videoclips, TextClip, CompositeVideoClip, ColorClip
 
-# === السلاح النووي الجديد لتخطي حظر يوتيوب ===
-from pytubefix import YouTube
-
 # === استدعاءات إنستجرام ===
 try:
     from instagrapi import Client
@@ -44,10 +41,22 @@ def send_telegram_alert(message):
     try: requests.post(url, data=payload)
     except Exception: pass
 
-# ================= الحل الجذري لـ Gemini (الاتصال المباشر بالسيرفر بدون مكتبات) =================
+# ================= دالة مفتش الجودة =================
+def is_valid_audio(filepath):
+    try:
+        if not os.path.exists(filepath): return False
+        if os.path.getsize(filepath) < 50000: return False 
+        clip = AudioFileClip(filepath)
+        dur = clip.duration
+        clip.close()
+        return dur > 0
+    except:
+        return False
+
+# ================= 🧠 الحل العبقري 1: دالة Gemini عبر الاتصال المباشر (REST API) =================
 def get_smart_timestamps(transcript_segments):
     if not GEMINI_API_KEY:
-        return None, None, "مفتاح GEMINI_API_KEY غير موجود في إعدادات GitHub."
+        return None, None, "مفتاح GEMINI_API_KEY مفقود."
 
     full_text_with_time = ""
     for seg in transcript_segments:
@@ -67,46 +76,36 @@ def get_smart_timestamps(transcript_segments):
     END: رقم
     """
     
-    print("🔄 جاري الاتصال المباشر بسيرفرات Gemini (REST API)...")
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+    # استخدام الرابط المباشر بدلاً من المكتبة لتجاوز أخطاء 404
+    api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
     headers = {'Content-Type': 'application/json'}
-    data = {
+    payload = {
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {"temperature": 0.2}
     }
-    
-    try:
-        response = requests.post(url, headers=headers, json=data, timeout=30)
-        res_json = response.json()
-        
-        if 'error' in res_json:
-            return None, None, f"خطأ من سيرفر جوجل: {res_json['error'].get('message')}"
-            
-        text_response = res_json['candidates'][0]['content']['parts'][0]['text']
-        match_start = re.search(r'START:\s*([0-9.]+)', text_response)
-        match_end = re.search(r'END:\s*([0-9.]+)', text_response)
-        
-        if match_start and match_end:
-            start = float(match_start.group(1))
-            end = float(match_end.group(1)) + 1.5 # وسادة صوتية
-            print("✅ نجح الاتصال المباشر بـ Gemini في تحليل النص!")
-            return start, end, None
-        else:
-            return None, None, "لم يتم العثور على أرقام واضحة في رد الذكاء الاصطناعي."
-    except Exception as e:
-        return None, None, f"فشل الاتصال المباشر: {str(e)}"
 
-# ================= دالة مفتش الجودة =================
-def is_valid_audio(filepath):
     try:
-        if not os.path.exists(filepath): return False
-        if os.path.getsize(filepath) < 50000: return False 
-        clip = AudioFileClip(filepath)
-        dur = clip.duration
-        clip.close()
-        return dur > 0
-    except:
-        return False
+        print("🔄 جاري الاتصال المباشر بعقل Gemini...")
+        response = requests.post(api_url, headers=headers, json=payload, timeout=30)
+        
+        if response.status_code == 200:
+            resp_data = response.json()
+            text_response = resp_data['candidates'][0]['content']['parts'][0]['text']
+            
+            match_start = re.search(r'START:\s*([0-9.]+)', text_response)
+            match_end = re.search(r'END:\s*([0-9.]+)', text_response)
+            
+            if match_start and match_end:
+                start = float(match_start.group(1))
+                end = float(match_end.group(1)) + 1.5 
+                print("✅ نجح Gemini عبر الاتصال المباشر!")
+                return start, end, None
+            else:
+                return None, None, "لم يتمكن Gemini من استخراج الأرقام بالصيغة المطلوبة."
+        else:
+            return None, None, f"خطأ في الاتصال المباشر: {response.status_code} - {response.text[:100]}"
+    except Exception as e:
+        return None, None, str(e)
 
 # ================= دالة إصلاح النص العربي =================
 def fix_arabic(text):
@@ -183,9 +182,9 @@ def fetch_and_trim_audio():
 
     remaining_count = len(available_videos_pool)
     if remaining_count == 0:
-        raise Exception("❌ انتهت جميع الفيديوهات الصالحة في القنوات المحددة!")
+        raise Exception("❌ انتهت جميع الفيديوهات الصالحة في القنوات المحددة! يرجى إضافة قنوات جديدة أو مسح الذاكرة.")
     elif remaining_count <= 3:
-        send_telegram_alert(f"🔔 *تنبيه قرب انتهاء المخزون!*\nمتبقي {remaining_count} فيديوهات فقط.")
+        send_telegram_alert(f"🔔 *تنبيه قرب انتهاء المخزون!*\nمتبقي {remaining_count} فيديوهات صالحة فقط.")
 
     selected = random.choice(available_videos_pool)
     selected_video = selected[0]
@@ -198,62 +197,92 @@ def fetch_and_trim_audio():
     print(f"تم اختيار: {video_title}\nيبدأ القص من الدقيقة: {start_time_for_clip/60:.2f}")
     
     downloaded_file = None
+    print("\n🚀 تفعيل بروتوكول السرب للتحميل...")
     
     for f in glob.glob("raw_audio.*") + ["temp_analysis.mp3", "final_audio.mp3"]:
         try: os.remove(f)
         except: pass
     
-    # --- المحاولة 1: الحل الجذري لتخطي الحظر (Pytubefix + PO Token) ---
-    print("\n🚀 1️⃣ تفعيل السلاح الجديد (Pytubefix PO Token) لتخطي حظر يوتيوب...")
+    # ================= 🏴‍☠️ الحل العبقري 2: تخطي الحظر =================
+
+    # المحاولة 1: التخفي العنيف كجهاز آيفون (Mobile Spoofing)
+    ydl_opts_dl = {
+        'format': 'm4a/bestaudio/best',
+        'outtmpl': 'raw_audio.%(ext)s', 
+        'quiet': True,
+        'extractor_args': {'youtube': ['player_client=ios,android']}, # تخفي عنيف كجوال
+        'http_headers': {'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15'}
+    }
+    if cookie_file: ydl_opts_dl['cookiefile'] = cookie_file
+    
     try:
-        yt = YouTube(video_url, use_po_token=True)
-        audio_stream = yt.streams.get_audio_only()
-        audio_stream.download(filename="raw_audio.m4a")
+        with YoutubeDL(ydl_opts_dl) as ydl_dl:
+            ydl_dl.download([video_url])
         
-        if is_valid_audio("raw_audio.m4a"):
-            downloaded_file = "raw_audio.m4a"
-            print("🎉 تم التحميل بنجاح خارق عبر Pytubefix!")
+        downloaded_files = glob.glob("raw_audio.*")
+        if downloaded_files and is_valid_audio(downloaded_files[0]):
+            downloaded_file = downloaded_files[0]
+            print(f"🎉 تم التحميل محلياً بنجاح (وضع الآيفون)!")
         else:
-            os.remove("raw_audio.m4a")
+            if downloaded_files: os.remove(downloaded_files[0])
     except Exception as e:
-        print(f"❌ فشل السلاح الجديد: {str(e)}")
+        error_msg = str(e).lower()
+        print(f"❌ فشل وضع الآيفون: {error_msg}")
 
-    # المحاولة 2: التخفي المحلي الكلاسيكي مع الكوكيز (كبديل)
+    # المحاولة 2: شبكة العناكب (Invidious API) - مقاومة للحظر
     if not downloaded_file:
-        print("\n🚀 2️⃣ جاري تجربة yt-dlp مع الكوكيز...")
-        ydl_opts_dl = {
-            'format': 'm4a/bestaudio/best', 'outtmpl': 'raw_audio.%(ext)s', 
-            'quiet': True, 'impersonate': 'chrome', 
-            'extractor_args': {'youtube': ['player_client=android_creator,ios,web']},
-        }
-        if cookie_file: ydl_opts_dl['cookiefile'] = cookie_file
-        try:
-            with YoutubeDL(ydl_opts_dl) as ydl_dl:
-                ydl_dl.download([video_url])
-            downloaded_files = glob.glob("raw_audio.*")
-            if downloaded_files and is_valid_audio(downloaded_files[0]):
-                downloaded_file = downloaded_files[0]
-                print(f"🎉 تم التحميل بنجاح! ({downloaded_file})")
-            else:
-                if downloaded_files: os.remove(downloaded_files[0])
-        except: pass
+        print("2️⃣ جاري محاولة التحميل عبر شبكة Invidious السرية...")
+        invidious_instances = [
+            "https://vid.puffyan.us", 
+            "https://invidious.nerdvpn.de", 
+            "https://inv.tux.pizza"
+        ]
+        random.shuffle(invidious_instances)
+        
+        for instance in invidious_instances:
+            try:
+                # سحب بيانات الفيديو خام
+                res = requests.get(f"{instance}/api/v1/videos/{vid_id}", timeout=15).json()
+                formats = res.get("adaptiveFormats", [])
+                
+                # البحث عن صيغة m4a للصوت
+                audio_url = None
+                for fmt in formats:
+                    if 'audio/mp4' in fmt.get('type', ''):
+                        audio_url = fmt.get('url')
+                        break
+                
+                if audio_url:
+                    audio_data = requests.get(audio_url, timeout=300).content
+                    with open("raw_audio.m4a", "wb") as f: f.write(audio_data)
+                    
+                    if is_valid_audio("raw_audio.m4a"):
+                        downloaded_file = "raw_audio.m4a"
+                        print(f"🎉 تم التحميل بنجاح عبر Invidious ({instance})!")
+                        break
+                    else:
+                        os.remove("raw_audio.m4a")
+            except: continue
 
-    # المحاولة 3: السحابي
+    # المحاولة 3: شبكة Piped
     if not downloaded_file:
-        print("\n🚀 3️⃣ جاري تجربة المحاور السحابية (Cobalt)...")
-        try:
-            headers = {"Accept": "application/json", "Content-Type": "application/json"}
-            payload = {"url": video_url, "isAudioOnly": True, "aFormat": "mp3"}
-            res = requests.post("https://api.cobalt.tools/api/json", json=payload, headers=headers, timeout=20)
-            if res.status_code == 200 and res.json().get('url'):
-                audio_data = requests.get(res.json().get('url'), timeout=300).content
-                with open("raw_audio.mp3", "wb") as f: f.write(audio_data)
-                if is_valid_audio("raw_audio.mp3"): downloaded_file = "raw_audio.mp3"
-                else: os.remove("raw_audio.mp3")
-        except: pass
+        print("3️⃣ جاري محاولة التحميل عبر شبكة Piped...")
+        piped_instances = ["https://pipedapi.kavin.rocks", "https://pipedapi.tokhmi.xyz"]
+        for instance in piped_instances:
+            try:
+                res = requests.get(f"{instance}/streams/{vid_id}", timeout=15).json()
+                audio_streams = res.get("audioStreams", [])
+                if audio_streams:
+                    best_stream = audio_streams[-1]['url']
+                    audio_data = requests.get(best_stream, timeout=300).content
+                    with open("raw_audio.m4a", "wb") as f: f.write(audio_data)
+                    if is_valid_audio("raw_audio.m4a"):
+                        downloaded_file = "raw_audio.m4a"; break
+                    else: os.remove("raw_audio.m4a")
+            except: continue
 
     if not downloaded_file: 
-        raise Exception("جميع الحلول الجذرية والتقليدية فشلت في تجاوز جدار حماية يوتيوب اليوم!")
+        raise Exception("جميع أسلحة الاختراق (المحلي، Invidious، Piped) فشلت! يوتيوب مغلق تماماً اليوم.")
 
     print("🧠 جاري تحليل الصوت بالذكاء الاصطناعي...")
     model = WhisperModel("base", device="cpu", compute_type="int8")
@@ -268,14 +297,14 @@ def fetch_and_trim_audio():
     try: os.remove("temp_analysis.mp3")
     except: pass
 
-    # القص الاحترافي عبر Gemini (الاتصال المباشر)
+    # القص الذكي عبر الاتصال المباشر بـ Gemini
     rel_start, rel_end, gemini_error = get_smart_timestamps(segments_list)
     
     if rel_start is not None and rel_end is not None:
         absolute_start = start_time_for_clip + rel_start
         absolute_end = start_time_for_clip + rel_end
     else:
-        send_telegram_alert(f"⚠️ *تنبيه:* Gemini فشل في الاتصال المباشر. تم استخدام القص التلقائي كبديل.\nالسبب: `{gemini_error}`")
+        send_telegram_alert(f"⚠️ *تنبيه:* نظام القص الذكي فشل، تم استخدام القص الآلي.\nالسبب: `{gemini_error}`")
         relative_start = 0.0
         if start_time_for_clip == 0.0:
             intro_keywords = ["بسم الله", "أعوذ بالله", "الحمد لله", "رب العالمين"]
@@ -397,3 +426,4 @@ if __name__ == "__main__":
             else:
                 send_telegram_alert(f"🚨 فشل نهائي!\nالسبب: `{str(e)}`")
                 sys.exit(1)
+
