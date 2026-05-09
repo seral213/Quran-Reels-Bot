@@ -116,11 +116,12 @@ CHANNELS = [
     {"url": "https://www.youtube.com/@9li9/videos", "name": "عبدالرحمن مسعد"}
 ]
 
-# تم تصحيح الروابط لضمان عدم ظهور 404 أو العفاسي!
+# تم إرجاع الروابط الصحيحة (server16) لضمان عمل خطة الطوارئ بنسبة 100%
 EMERGENCY_LINKS = [
-    {"url": "https://server14.mp3quran.net/mosaad/018.mp3", "title": "سورة الكهف", "reciter": "عبدالرحمن مسعد"},
-    {"url": "https://server14.mp3quran.net/mosaad/067.mp3", "title": "سورة الملك", "reciter": "عبدالرحمن مسعد"},
-    {"url": "https://server14.mp3quran.net/mosaad/055.mp3", "title": "سورة الرحمن", "reciter": "عبدالرحمن مسعد"}
+    {"url": "https://server16.mp3quran.net/a_mosaad/018.mp3", "title": "سورة الكهف", "reciter": "عبدالرحمن مسعد"},
+    {"url": "https://server16.mp3quran.net/a_mosaad/067.mp3", "title": "سورة الملك", "reciter": "عبدالرحمن مسعد"},
+    {"url": "https://server16.mp3quran.net/a_mosaad/055.mp3", "title": "سورة الرحمن", "reciter": "عبدالرحمن مسعد"},
+    {"url": "https://server16.mp3quran.net/a_mosaad/056.mp3", "title": "سورة الواقعة", "reciter": "عبدالرحمن مسعد"}
 ]
 
 def load_history():
@@ -139,49 +140,35 @@ def setup_cookies():
         return "cookies.txt"
     return None
 
-# ================= 🛡️ دبابة التحميل الصارمة (بالتضبيط الجديد) =================
+# ================= 🛡️ دبابة التحميل الصارمة =================
 def download_url_safe(url, ext="mp3"):
-    print(f"🔗 جاري محاولة سحب الملف المباشر...")
+    print(f"🔗 جاري محاولة سحب الرابط: {url[:50]}...")
     if url.startswith("//"): url = "https:" + url 
     fname = f"raw_audio_{random.randint(100,999)}.{ext}"
 
-    # الطبقة 1: التخفي الذكي والمطابق للمعايير
+    # الطبقة 1: استخدام أداة curl (لاحترافيتها في تخطي 404 وتتبع الروابط)
     try:
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-            "Referer": "https://www.youtube.com/",
-            "Accept": "audio/webm,audio/ogg,audio/wav,audio/*;q=0.9,application/ogg;q=0.7,video/*;q=0.6,*/*;q=0.5"
-        }
+        os.system(f'curl -s -L -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" -o "{fname}" "{url}"')
+        if is_valid_audio(fname): 
+            print("✅ تم سحب الملف المباشر بنجاح!")
+            return fname
+    except: pass
+
+    # الطبقة 2: requests الطبيعية
+    try:
+        headers = {"User-Agent": "Mozilla/5.0"}
         r = requests.get(url, headers=headers, timeout=60, stream=True, allow_redirects=True)
-        print(f"📡 استجابة السيرفر الأساسية: {r.status_code}")
-        
         if r.status_code in [200, 206]:
             with open(fname, "wb") as f:
-                for chunk in r.iter_content(8192): 
-                    if chunk: f.write(chunk)
-            if is_valid_audio(fname): 
-                print("✅ تم سحب الملف بنجاح وبجودة عالية!")
-                return fname
-            else:
-                os.remove(fname)
-    except Exception as e: 
-        print(f"❌ خطأ في السحب المباشر: {e}")
-
-    # الطبقة 2: محرك yt-dlp المعكوس في حال رفضت الطبقة الأولى
-    print("🔄 جاري محاولة السحب العكسي عبر yt-dlp...")
-    try:
-        # أزلنا صيغة ios لضمان عدم ظهور رسالة Requested format
-        os.system(f'yt-dlp --force-ipv4 --no-check-certificate -o "{fname}" "{url}"')
-        if is_valid_audio(fname): 
-            print("✅ تم سحب الملف عبر المحرك العكسي!")
-            return fname
+                for chunk in r.iter_content(8192): f.write(chunk)
+            if is_valid_audio(fname): return fname
     except: pass
 
     try: os.remove(fname)
     except: pass
     return None
 
-# ================= بروتوكول التشغيل الرئيسي =================
+# ================= بروتوكول التشغيل =================
 def fetch_and_trim_audio():
     history = load_history()
     cookie_file = setup_cookies()
@@ -225,13 +212,13 @@ def fetch_and_trim_audio():
 
     downloaded_file = None
 
-    # ================= 🚀 RapidAPI (المفضلة لديك) =================
+    # ================= 🚀 RapidAPI (التضبيط الذهبي) =================
     if RAPID_API_KEY and not downloaded_file:
         print("1️⃣ جاري التحميل عبر RapidAPI...")
         url = "https://youtube-mp36.p.rapidapi.com/dl"
         headers = {"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": "youtube-mp36.p.rapidapi.com"}
         
-        for i in range(10):
+        for i in range(12): # زيادة عدد المحاولات لتجنب التسرع
             try:
                 res = requests.get(url, headers=headers, params={"id": vid_id}, timeout=30)
                 if res.status_code == 200:
@@ -239,13 +226,14 @@ def fetch_and_trim_audio():
                     status = data.get("status")
                     if status == "ok" and data.get("link"):
                         print("🎉 تم تحويل المقطع بنجاح في سيرفراتهم!")
-                        # انتظار تكتيكي لثانيتين لضمان استقرار الرابط
-                        time.sleep(2)
+                        # ⏳ التكتيك الجديد: انتظار 4 ثواني لضمان رفع الملف بالكامل لتجنب 404
+                        print("⏳ ننتظر 4 ثواني لضمان توفر الملف في سيرفراتهم (لتجنب خطأ 404)...")
+                        time.sleep(4) 
                         downloaded_file = download_url_safe(data["link"])
                         break
                     elif status == "processing":
-                        print(f"⏳ المقطع قيد المعالجة (محاولة {i+1}/10)... انتظار 3 ثواني.")
-                        time.sleep(3)
+                        print(f"⏳ المقطع قيد المعالجة (محاولة {i+1}/12)...")
+                        time.sleep(4)
                     elif status == "fail":
                         print(f"❌ فشل التحويل من السيرفر.")
                         break
@@ -256,8 +244,8 @@ def fetch_and_trim_audio():
     if not downloaded_file:
         print("2️⃣ جاري التحميل محلياً عبر (yt-dlp)...")
         try:
-            # تم حذف قيد ios لحل مشكلة 404
-            ydl_opts = {'format': 'bestaudio/best', 'outtmpl': 'raw_audio_yt.%(ext)s', 'quiet': True}
+            # تم إزالة قيد 'bestaudio/best' للقبول بأي جودة صوتية متاحة لمنع خطأ Requested format
+            ydl_opts = {'format': 'ba', 'outtmpl': 'raw_audio_yt.%(ext)s', 'quiet': True, 'extractor_args': {'youtube': ['player_client=android']}}
             if cookie_file: ydl_opts['cookiefile'] = cookie_file
             with YoutubeDL(ydl_opts) as ydl_dl: ydl_dl.download([video_url])
             files = glob.glob("raw_audio_yt.*")
