@@ -196,105 +196,87 @@ def fetch_and_trim_audio():
     print(f"تم اختيار: {video_title}\nيبدأ القص من الدقيقة: {start_time_for_clip/60:.2f}")
     
     downloaded_file = None
-    print("\n🚀 تفعيل بروتوكول السرب للتحميل...")
+    print("\n🚀 تفعيل أسلحة الاختراق المتقدمة (الجيل الثالث)...")
     
     for f in glob.glob("raw_audio.*") + ["temp_analysis.mp3", "final_audio.mp3"]:
         try: os.remove(f)
         except: pass
-    
-    # المحاولة 1: التخفي المحلي (بدون إجبار صيغة m4a لتجنب خطأ الفورمات)
-    ydl_opts_dl = {
-        'format': 'bestaudio/best', # تم التعديل لقبول أي صيغة صوت
-        'outtmpl': 'raw_audio.%(ext)s', 
-        'quiet': True,
-        'extractor_args': {'youtube': ['player_client=android']}, # العودة للأندرويد لتجنب ألغاز JS
-    }
-    if cookie_file: ydl_opts_dl['cookiefile'] = cookie_file
-    
-    try:
-        with YoutubeDL(ydl_opts_dl) as ydl_dl:
-            ydl_dl.download([video_url])
-        
-        downloaded_files = glob.glob("raw_audio.*")
-        if downloaded_files and is_valid_audio(downloaded_files[0]):
-            downloaded_file = downloaded_files[0]
-            print(f"🎉 تم التحميل محلياً بنجاح!")
-        else:
-            if downloaded_files: os.remove(downloaded_files[0])
-    except Exception as e:
-        error_msg = str(e).lower()
-        print(f"❌ فشل المحلي: {error_msg}")
 
-    # المحاولة 2: شبكة العناكب (Invidious API)
-    if not downloaded_file:
-        print("2️⃣ جاري محاولة التحميل عبر شبكة Invidious السرية...")
-        invidious_instances = [
-            "https://vid.puffyan.us", 
-            "https://invidious.nerdvpn.de", 
-            "https://inv.tux.pizza"
-        ]
-        random.shuffle(invidious_instances)
-        
-        for instance in invidious_instances:
-            try:
-                res = requests.get(f"{instance}/api/v1/videos/{vid_id}", timeout=15).json()
-                formats = res.get("adaptiveFormats", [])
-                
-                audio_url = None
-                for fmt in formats:
-                    if 'audio' in fmt.get('type', ''):
-                        audio_url = fmt.get('url')
-                        break
-                
-                if audio_url:
-                    audio_data = requests.get(audio_url, timeout=300).content
-                    with open("raw_audio.webm", "wb") as f: f.write(audio_data)
-                    
-                    if is_valid_audio("raw_audio.webm"):
-                        downloaded_file = "raw_audio.webm"
-                        print(f"🎉 تم التحميل بنجاح عبر Invidious ({instance})!")
-                        break
-                    else:
-                        os.remove("raw_audio.webm")
-            except: continue
+    # ================= 🏴‍☠️ الحلول العبقرية لتخطي الحظر =================
 
-    # المحاولة 3: Cobalt הסحابي المحدث (إصدار V7 الجديد)
+    # السلاح الأول: ثغرة روبوتات الواتساب (Siputzx API)
     if not downloaded_file:
-        print("3️⃣ جاري تجربة Cobalt (الإصدار الجديد)...")
+        print("1️⃣ جاري سحب الصوت عبر ثغرة سيرفرات المراسلة (Siputzx)...")
         try:
-            headers = {"Accept": "application/json", "Content-Type": "application/json"}
-            payload = {"url": video_url, "downloadMode": "audio", "audioFormat": "mp3"} # الهيكل الجديد
-            res = requests.post("https://api.cobalt.tools/", json=payload, headers=headers, timeout=20)
-            if res.status_code == 200 and res.json().get('url'):
-                audio_data = requests.get(res.json().get('url'), timeout=300).content
+            res = requests.get(f"https://api.siputzx.my.id/api/d/ytmp3?url={video_url}", timeout=20).json()
+            if res.get("status") and res.get("data", {}).get("dl"):
+                audio_url = res["data"]["dl"]
+                audio_data = requests.get(audio_url, timeout=300).content
                 with open("raw_audio.mp3", "wb") as f: f.write(audio_data)
-                if is_valid_audio("raw_audio.mp3"): 
+                if is_valid_audio("raw_audio.mp3"):
                     downloaded_file = "raw_audio.mp3"
-                    print("🎉 تم التحميل بنجاح عبر Cobalt!")
-                else: os.remove("raw_audio.mp3")
-        except: pass
+                    print("🎉 تم السحب بنجاح عبر ثغرة Siputzx!")
+        except Exception as e: print(f"فشل Siputzx: {e}")
 
-    # المحاولة 4: شبكة Piped
+    # السلاح الثاني: ثغرة روبوتات الواتساب 2 (Ryzen API)
     if not downloaded_file:
-        print("4️⃣ جاري محاولة التحميل عبر شبكة Piped...")
-        piped_instances = ["https://pipedapi.kavin.rocks", "https://pipedapi.tokhmi.xyz"]
-        for instance in piped_instances:
+        print("2️⃣ جاري سحب الصوت عبر ثغرة سيرفرات المراسلة 2 (Ryzen)...")
+        try:
+            res = requests.get(f"https://api.ryzendesu.vip/api/downloader/ytmp3?url={video_url}", headers={"accept": "application/json"}, timeout=20).json()
+            audio_url = res.get("url") or res.get("data", {}).get("url")
+            if audio_url:
+                audio_data = requests.get(audio_url, timeout=300).content
+                with open("raw_audio.mp3", "wb") as f: f.write(audio_data)
+                if is_valid_audio("raw_audio.mp3"):
+                    downloaded_file = "raw_audio.mp3"
+                    print("🎉 تم السحب بنجاح عبر ثغرة Ryzen!")
+        except Exception as e: print(f"فشل Ryzen: {e}")
+
+    # السلاح الثالث: مستنسخات Cobalt السرية (V7)
+    if not downloaded_file:
+        print("3️⃣ جاري سحب الصوت عبر مستنسخات Cobalt السرية...")
+        headers = {
+            "Accept": "application/json", "Content-Type": "application/json",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "Origin": "https://cobalt.tools", "Referer": "https://cobalt.tools/"
+        }
+        payload = {"url": video_url, "audioFormat": "mp3", "downloadMode": "audio"}
+        clones = ["https://cobalt.kwiatekm.lol", "https://co.wuk.sh", "https://api.cobalt.tools"]
+        for clone in clones:
             try:
-                res = requests.get(f"{instance}/streams/{vid_id}", timeout=15).json()
-                audio_streams = res.get("audioStreams", [])
-                if audio_streams:
-                    best_stream = audio_streams[-1]['url']
-                    audio_data = requests.get(best_stream, timeout=300).content
-                    with open("raw_audio.webm", "wb") as f: f.write(audio_data)
-                    if is_valid_audio("raw_audio.webm"):
-                        downloaded_file = "raw_audio.webm"
-                        print("🎉 تم التحميل بنجاح عبر Piped!")
+                res = requests.post(f"{clone}/", json=payload, headers=headers, timeout=20)
+                if res.status_code == 200 and res.json().get('url'):
+                    audio_data = requests.get(res.json().get('url'), timeout=300).content
+                    with open("raw_audio.mp3", "wb") as f: f.write(audio_data)
+                    if is_valid_audio("raw_audio.mp3"):
+                        downloaded_file = "raw_audio.mp3"
+                        print(f"🎉 تم السحب بنجاح عبر المستنسخ {clone}!")
                         break
-                    else: os.remove("raw_audio.webm")
             except: continue
+
+    # السلاح الرابع: yt-dlp مع تخفي نظارة الواقع الافتراضي (Android VR)
+    if not downloaded_file:
+        print("4️⃣ جاري التحميل عبر التخفي كنظارة واقع افتراضي (Android VR)...")
+        ydl_opts_dl = {
+            'format': 'ba/best',
+            'outtmpl': 'raw_audio.%(ext)s', 
+            'quiet': True,
+            'extractor_args': {'youtube': ['player_client=android_vr,tv']},
+        }
+        if cookie_file: ydl_opts_dl['cookiefile'] = cookie_file
+        
+        try:
+            with YoutubeDL(ydl_opts_dl) as ydl_dl:
+                ydl_dl.download([video_url])
+            downloaded_files = glob.glob("raw_audio.*")
+            if downloaded_files and is_valid_audio(downloaded_files[0]):
+                downloaded_file = downloaded_files[0]
+                print(f"🎉 تم التحميل بنجاح (Android VR)!")
+        except Exception as e:
+            print(f"فشل المحلي VR: {e}")
 
     if not downloaded_file: 
-        raise Exception("جميع أسلحة الاختراق (المحلي، Invidious، Cobalt، Piped) فشلت! يوتيوب مغلق تماماً اليوم.")
+        raise Exception("يوتيوب أغلق جميع المنافذ اليوم (حتى الثغرات السرية فشلت)!")
 
     print("🧠 جاري تحليل الصوت بالذكاء الاصطناعي...")
     model = WhisperModel("base", device="cpu", compute_type="int8")
