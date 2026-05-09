@@ -47,7 +47,7 @@ def send_telegram_alert(message):
 def is_valid_audio(filepath):
     try:
         if not os.path.exists(filepath): return False
-        if os.path.getsize(filepath) < 50000: return False # استبعاد الملفات المعطوبة والصغيرة
+        if os.path.getsize(filepath) < 50000: return False 
         clip = AudioFileClip(filepath)
         dur = clip.duration
         clip.close()
@@ -55,75 +55,62 @@ def is_valid_audio(filepath):
     except:
         return False
 
-# ================= ✂️ المقص الذكي للشاشة الكاملة =================
+# ================= ✂️ المقص الذكي =================
 def crop_to_vertical(clip):
     target_ratio = 9 / 16
     clip_ratio = clip.w / clip.h
     
     if clip_ratio > target_ratio: 
-        # الفيديو عريض (أفقي) ويحتاج قص من الجوانب
         new_w = int(clip.h * target_ratio)
         x_center = clip.w / 2
         cropped_clip = crop(clip, width=new_w, height=clip.h, x_center=x_center)
     else: 
-        # الفيديو طويل جداً ويحتاج قص من الأعلى والأسفل
         new_h = int(clip.w / target_ratio)
         y_center = clip.h / 2
         cropped_clip = crop(clip, width=clip.w, height=new_h, y_center=y_center)
         
     return resize(cropped_clip, height=1920, width=1080)
 
-# ================= 🧠 القص الذكي عبر الاتصال المباشر =================
+# ================= 🧠 القص الذكي =================
 def get_smart_timestamps(transcript_segments):
-    if not GEMINI_API_KEY:
-        return None, None, "مفتاح GEMINI_API_KEY مفقود."
+    if not GEMINI_API_KEY: return None, None, "مفتاح مفقود."
+    full_text_with_time = "".join([f"[{seg.start:.2f}s - {seg.end:.2f}s]: {seg.text}\n" for seg in transcript_segments])
 
-    full_text_with_time = ""
-    for seg in transcript_segments:
-        full_text_with_time += f"[{seg.start:.2f}s - {seg.end:.2f}s]: {seg.text}\n"
-
-    # أمر صارم جداً للذكاء الاصطناعي لتجنب التخريف
     prompt = f"""
-    أنت خبير في القرآن الكريم. أمامك نص مستخرج من تلاوة قرآنية مع التوقيت الزمني.
-    المطلوب تحديد نقطة البداية ونقطة النهاية بدقة (بالثواني) لعمل مقطع فيديو ريلز مدته بين 40 و 58 ثانية:
-    1. البداية: ابحث عن أول كلمة يبدأ فيها القارئ التلاوة الفعلية متخطياً أي مقدمات.
-    2. النهاية: يجب أن تكون عند نهاية آية تامة المعنى لتجنب القطع المفاجئ.
+    أنت خبير في القرآن. أمامك نص مستخرج من تلاوة.
+    حدد البداية والنهاية (بالثواني) لعمل مقطع بين 40 و 58 ثانية:
+    1. البداية: ابدأ مع أول كلمة فعلية للتلاوة.
+    2. النهاية: يجب أن تكون عند نهاية آية تامة المعنى.
     
     النص:
     {full_text_with_time}
     
-    أجب فقط بهذه الصيغة الرياضية (بدون أي حرف إضافي):
+    أجب فقط بهذه الصيغة الرياضية:
     START: 00.00
     END: 00.00
     """
     
-    api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
-    headers = {'Content-Type': 'application/json'}
-    payload = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"temperature": 0.1}}
-
     try:
-        print("🔄 جاري الاتصال المباشر بعقل Gemini للقص الاحترافي...")
-        response = requests.post(api_url, headers=headers, json=payload, timeout=30)
+        api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+        payload = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"temperature": 0.1}}
+        response = requests.post(api_url, json=payload, headers={'Content-Type': 'application/json'}, timeout=30)
+        
         if response.status_code == 200:
             text_response = response.json()['candidates'][0]['content']['parts'][0]['text']
             match_start = re.search(r'START:\s*([0-9.]+)', text_response)
             match_end = re.search(r'END:\s*([0-9.]+)', text_response)
-            
             if match_start and match_end:
                 return float(match_start.group(1)), float(match_end.group(1)), None
-            return None, None, "تنسيق الرد غير صحيح من الذكاء الاصطناعي."
         return None, None, f"خطأ الاتصال: {response.status_code}"
-    except Exception as e:
-        return None, None, str(e)
+    except Exception as e: return None, None, str(e)
 
-# ================= دالة إصلاح النص العربي =================
+# ================= إصلاح النص العربي =================
 def fix_arabic(text):
     if not text: return ""
-    padded_text = f" {text} " 
     reshaper = arabic_reshaper.ArabicReshaper(configuration={'delete_harakat': False, 'support_ligatures': True})
-    return get_display(reshaper.reshape(padded_text))
+    return get_display(reshaper.reshape(f" {text} "))
 
-# ================= قنوات القراء وروابط الطوارئ (حصرياً للقراء المفضلين) =================
+# ================= القنوات وخطة الطوارئ =================
 CHANNELS = [
     {"url": "https://www.youtube.com/@abdullahshaab1/videos", "name": "عبدالله شعبان"},
     {"url": "https://www.youtube.com/@9li9/videos", "name": "عبدالرحمن مسعد"}
@@ -132,18 +119,13 @@ CHANNELS = [
 EMERGENCY_LINKS = [
     {"url": "https://server16.mp3quran.net/a_mosaad/018.mp3", "title": "سورة الكهف", "reciter": "عبدالرحمن مسعد"},
     {"url": "https://server16.mp3quran.net/a_mosaad/067.mp3", "title": "سورة الملك", "reciter": "عبدالرحمن مسعد"},
-    {"url": "https://server16.mp3quran.net/a_mosaad/055.mp3", "title": "سورة الرحمن", "reciter": "عبدالرحمن مسعد"},
-    {"url": "https://server16.mp3quran.net/a_mosaad/056.mp3", "title": "سورة الواقعة", "reciter": "عبدالرحمن مسعد"}
+    {"url": "https://server16.mp3quran.net/a_mosaad/055.mp3", "title": "سورة الرحمن", "reciter": "عبدالرحمن مسعد"}
 ]
 
 def load_history():
     if os.path.exists(HISTORY_FILE):
         try:
-            with open(HISTORY_FILE, "r") as f:
-                data = json.load(f)
-                if "youtube_clips" not in data: data["youtube_clips"] = {}
-                if "used_pexels" not in data: data["used_pexels"] = []
-                return data
+            with open(HISTORY_FILE, "r") as f: return json.load(f)
         except: pass
     return {"youtube_clips": {}, "used_pexels": []}
 
@@ -156,51 +138,44 @@ def setup_cookies():
         return "cookies.txt"
     return None
 
-# ================= 🛡️ دبابة التحميل الصارمة (تطبع كل الأخطاء لتخطي الحماية) =================
+# ================= 🛡️ دبابة التحميل الصارمة (بثلاث طبقات حماية) =================
 def download_url_safe(url, ext="mp3"):
     print(f"🔗 جاري محاولة سحب الملف المباشر...")
-    
-    # 1. المحاولة الأساسية عبر الطلب المباشر
+    if url.startswith("//"): url = "https:" + url # تصليح الروابط الناقصة
+    fname = f"raw_audio_{random.randint(100,999)}.{ext}"
+
+    # الطبقة 1: مكتبة requests الطبيعية
     try:
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-        r = requests.get(url, headers=headers, timeout=60, allow_redirects=True)
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        r = requests.get(url, headers=headers, timeout=60, stream=True, allow_redirects=True)
         print(f"📡 استجابة السيرفر الأساسية: {r.status_code}")
-        
         if r.status_code in [200, 206]:
-            fname = f"raw_audio_{random.randint(100,999)}.{ext}"
-            with open(fname, "wb") as f: f.write(r.content)
-            
-            if is_valid_audio(fname): 
-                print("✅ تم التحميل وفحص الجودة بنجاح (الطلب المباشر)!")
-                return fname
-            else: 
-                print("⚠️ الملف المحمل غير صالح أو فارغ (تم الحذف).")
-                os.remove(fname)
-        else:
-            print(f"❌ السيرفر رفض الطلب المباشر بسبب حماية (Cloudflare أو غيره).")
-    except Exception as e: 
-        print(f"❌ خطأ في الاتصال المباشر: {e}")
+            with open(fname, "wb") as f:
+                for chunk in r.iter_content(8192): f.write(chunk)
+            if is_valid_audio(fname): return fname
+    except Exception as e: print(f"❌ خطأ في الطبقة 1: {e}")
 
-    # 2. المحاولة الهجومية: استخدام yt-dlp لكسر حماية الرابط وسحبه
-    print("🔄 جاري تفعيل محرك yt-dlp لكسر الحماية وسحب الرابط المباشر...")
+    # الطبقة 2: أداة wget (كاسحة الألغام النظامية)
+    print("🔄 جاري تفعيل أداة wget النظامية لسحب الملف بالقوة...")
     try:
-        fname = f"raw_audio_{random.randint(100,999)}.{ext}"
-        ydl_opts = {'outtmpl': fname, 'quiet': True}
-        with YoutubeDL(ydl_opts) as ydl_dl:
-            ydl_dl.download([url])
-        
-        if is_valid_audio(fname):
-            print("✅ نجح محرك yt-dlp في سحب الرابط بالقوة!")
+        os.system(f'wget -q -O {fname} "{url}"')
+        if is_valid_audio(fname): 
+            print("✅ نجح السحب عبر wget!")
             return fname
-        else:
-            try: os.remove(fname)
-            except: pass
-    except Exception as e:
-        print(f"❌ فشل محرك yt-dlp في سحب الرابط: {e}")
+    except: pass
 
+    # الطبقة 3: محرك yt-dlp 
+    print("🔄 جاري محاولة السحب العكسي عبر yt-dlp...")
+    try:
+        os.system(f'yt-dlp --force-ipv4 -o "{fname}" "{url}"')
+        if is_valid_audio(fname): return fname
+    except: pass
+
+    try: os.remove(fname)
+    except: pass
     return None
 
-# ================= بروتوكول التشغيل الرئيسي =================
+# ================= بروتوكول التشغيل =================
 def fetch_and_trim_audio():
     history = load_history()
     cookie_file = setup_cookies()
@@ -211,7 +186,7 @@ def fetch_and_trim_audio():
     is_thursday = datetime.now().strftime("%A") == "Thursday"
     available_videos_pool = []
     
-    print("جاري فحص مخزون الفيديوهات في القنوات...")
+    print("جاري فحص مخزون الفيديوهات...")
     with YoutubeDL(ydl_opts_flat) as ydl:
         for channel in CHANNELS:
             try:
@@ -244,46 +219,39 @@ def fetch_and_trim_audio():
 
     downloaded_file = None
 
-    # ================= 🚀 RapidAPI (نظام الصبر والمعالجة) =================
+    # ================= 🚀 RapidAPI (نظام الصبر المطور) =================
     if RAPID_API_KEY and not downloaded_file:
         print("1️⃣ جاري التحميل عبر RapidAPI...")
         url = "https://youtube-mp36.p.rapidapi.com/dl"
         headers = {"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": "youtube-mp36.p.rapidapi.com"}
         
-        # حلقة تكرار (Loop) للانتظار حتى تنتهي الأداة من التحويل
-        max_retries = 10
-        for i in range(max_retries):
+        for i in range(10):
             try:
                 res = requests.get(url, headers=headers, params={"id": vid_id}, timeout=30)
                 if res.status_code == 200:
                     data = res.json()
                     status = data.get("status")
-                    
                     if status == "ok" and data.get("link"):
-                        print("🎉 تم تحويل المقطع بنجاح في سيرفراتهم، جاري بدء السحب...")
+                        print("🎉 تم تحويل المقطع بنجاح في سيرفراتهم!")
+                        # الانتظار التكتيكي (2 ثانية) لضمان جاهزية الملف على السيرفر
+                        time.sleep(2)
                         downloaded_file = download_url_safe(data["link"])
                         break
                     elif status == "processing":
-                        print(f"⏳ المقطع قيد المعالجة (محاولة {i+1}/{max_retries})... انتظار 3 ثواني.")
+                        print(f"⏳ المقطع قيد المعالجة (محاولة {i+1}/10)... انتظار 3 ثواني.")
                         time.sleep(3)
                     elif status == "fail":
-                        print(f"❌ فشل التحويل من السيرفر: {data.get('msg')}")
+                        print(f"❌ فشل التحويل من السيرفر.")
                         break
-                    else:
-                        print(f"⚠️ استجابة غير متوقعة: {data}")
-                        break
-                else:
-                    print(f"❌ RapidAPI رفض الطلب. كود: {res.status_code}")
-                    break
-            except Exception as e:
-                print(f"❌ خطأ أثناء الاتصال: {e}")
-                break
+                else: break
+            except Exception as e: print(f"❌ خطأ أثناء الاتصال: {e}"); break
 
     # ================= 🎥 يوتيوب كبديل محلي =================
     if not downloaded_file:
         print("2️⃣ جاري التحميل محلياً عبر (yt-dlp)...")
         try:
-            ydl_opts = {'format': 'ba/best', 'outtmpl': 'raw_audio_yt.%(ext)s', 'quiet': True, 'extractor_args': {'youtube': ['player_client=ios']}}
+            # تم إزالة القيود الصارمة عن الصيغة لحل مشكلة 404 المحلية
+            ydl_opts = {'format': 'bestaudio/best', 'outtmpl': 'raw_audio_yt.%(ext)s', 'quiet': True}
             if cookie_file: ydl_opts['cookiefile'] = cookie_file
             with YoutubeDL(ydl_opts) as ydl_dl: ydl_dl.download([video_url])
             files = glob.glob("raw_audio_yt.*")
@@ -293,7 +261,6 @@ def fetch_and_trim_audio():
     # ================= 🛡️ خطة الطوارئ القصوى =================
     if not downloaded_file:
         print("⚠️ فشل يوتيوب تماماً! تفعيل خطة الطوارئ البديلة...")
-        send_telegram_alert("⚠️ *تنبيه:*\nواجهت الأداة مشكلة في سحب المقطع من يوتيوب. تم تفعيل خطة الطوارئ البديلة لضمان نشر المقطع اليوم.")
         emergency = random.choice(EMERGENCY_LINKS)
         downloaded_file = download_url_safe(emergency["url"])
         if downloaded_file:
@@ -335,8 +302,6 @@ def fetch_and_trim_audio():
         
     final_audio_duration = absolute_end - absolute_start
     trimmed_audio = full_audio.subclip(absolute_start, absolute_end)
-    
-    # 🌟 التلاشي الصوتي السينمائي (يمنع القص المفاجئ) 🌟
     final_audio = trimmed_audio.audio_fadein(1.0).audio_fadeout(2.5) 
     final_audio.write_audiofile("final_audio.mp3", logger=None)
     
@@ -346,7 +311,7 @@ def fetch_and_trim_audio():
     
     return final_audio_duration, video_title, vid_id, selected_reciter, history
 
-# ================= 3. جلب فيديوهات الطبيعة وملء الشاشة =================
+# ================= 3. جلب فيديوهات الطبيعة =================
 def fetch_pexels_videos(target_duration, history):
     today = datetime.now().strftime("%A")
     query = "drone landscape, nature" if today in ['Sunday', 'Tuesday', 'Thursday'] else "clouds, peaceful nature"
@@ -362,7 +327,6 @@ def fetch_pexels_videos(target_duration, history):
         with open(vid_name, "wb") as f: f.write(vid_data)
         
         clip = VideoFileClip(vid_name)
-        # 🌟 تفعيل المقص الذكي لملء الشاشة وإزالة الحواف السوداء 🌟
         vertical_clip = crop_to_vertical(clip)
         
         video_files.append((vertical_clip, vid_name))
@@ -372,7 +336,7 @@ def fetch_pexels_videos(target_duration, history):
         if current_duration >= target_duration: break
     return video_files, history
 
-# ================= 4. المونتاج السينمائي =================
+# ================= 4. المونتاج =================
 def render_cinematic_video(audio_duration, clips_data):
     clips = [data[0] for data in clips_data]
     final_video = concatenate_videoclips(clips, method="compose").subclip(0, audio_duration)
@@ -415,7 +379,7 @@ def publish_to_instagram(reciter_name, title):
     except Exception as e:
         raise Exception(f"❌ فشل النشر: {str(e)}")
 
-# ================= التشغيل الرئيسي (بحلقة تكرار ذكية) =================
+# ================= التشغيل الرئيسي =================
 if __name__ == "__main__":
     max_retries = 3 
     for attempt in range(1, max_retries + 1):
