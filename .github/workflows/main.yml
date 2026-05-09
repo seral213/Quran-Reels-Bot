@@ -38,6 +38,7 @@ jobs:
         ADMIN_CHAT_ID: ${{ secrets.ADMIN_CHAT_ID }}
         YOUTUBE_COOKIES: ${{ secrets.YOUTUBE_COOKIES }}
         GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        RAPID_API_KEY: ${{ secrets.RAPID_API_KEY }}
       run: python bot.py
 
     - name: حفظ الذاكرة وجلسة إنستجرام الآمنة
