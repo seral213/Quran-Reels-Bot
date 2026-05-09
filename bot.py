@@ -83,7 +83,8 @@ def get_smart_timestamps(transcript_segments):
     """
     
     try:
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        # قمت بتغيير الموديل إلى gemini-pro لضمان الاستقرار والعمل الفوري
+        model = genai.GenerativeModel('gemini-pro')
         response = model.generate_content(prompt)
         start, end = None, None
         
@@ -102,6 +103,7 @@ def get_smart_timestamps(transcript_segments):
             return None, None, "فشل الذكاء الاصطناعي في تحديد الأوقات من النص."
     except Exception as e:
         return None, None, str(e)
+
 
 # ================= دالة إصلاح النص العربي =================
 def fix_arabic(text):
