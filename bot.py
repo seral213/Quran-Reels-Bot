@@ -47,7 +47,7 @@ def send_telegram_alert(message):
 def is_valid_audio(filepath):
     try:
         if not os.path.exists(filepath): return False
-        if os.path.getsize(filepath) < 50000: return False 
+        if os.path.getsize(filepath) < 50000: return False # استبعاد الملفات المعطوبة والصغيرة
         clip = AudioFileClip(filepath)
         dur = clip.duration
         clip.close()
@@ -61,10 +61,12 @@ def crop_to_vertical(clip):
     clip_ratio = clip.w / clip.h
     
     if clip_ratio > target_ratio: 
+        # الفيديو عريض (أفقي) ويحتاج قص من الجوانب
         new_w = int(clip.h * target_ratio)
         x_center = clip.w / 2
         cropped_clip = crop(clip, width=new_w, height=clip.h, x_center=x_center)
     else: 
+        # الفيديو طويل جداً ويحتاج قص من الأعلى والأسفل
         new_h = int(clip.w / target_ratio)
         y_center = clip.h / 2
         cropped_clip = crop(clip, width=clip.w, height=new_h, y_center=y_center)
@@ -80,16 +82,17 @@ def get_smart_timestamps(transcript_segments):
     for seg in transcript_segments:
         full_text_with_time += f"[{seg.start:.2f}s - {seg.end:.2f}s]: {seg.text}\n"
 
+    # أمر صارم جداً للذكاء الاصطناعي لتجنب التخريف
     prompt = f"""
     أنت خبير في القرآن الكريم. أمامك نص مستخرج من تلاوة قرآنية مع التوقيت الزمني.
     المطلوب تحديد نقطة البداية ونقطة النهاية بدقة (بالثواني) لعمل مقطع فيديو ريلز مدته بين 40 و 58 ثانية:
     1. البداية: ابحث عن أول كلمة يبدأ فيها القارئ التلاوة الفعلية متخطياً أي مقدمات.
-    2. النهاية: يجب أن تكون عند نهاية آية تامة المعنى.
+    2. النهاية: يجب أن تكون عند نهاية آية تامة المعنى لتجنب القطع المفاجئ.
     
     النص:
     {full_text_with_time}
     
-    أجب فقط بهذه الصيغة (بدون أي حرف إضافي):
+    أجب فقط بهذه الصيغة الرياضية (بدون أي حرف إضافي):
     START: 00.00
     END: 00.00
     """
@@ -99,6 +102,7 @@ def get_smart_timestamps(transcript_segments):
     payload = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"temperature": 0.1}}
 
     try:
+        print("🔄 جاري الاتصال المباشر بعقل Gemini للقص الاحترافي...")
         response = requests.post(api_url, headers=headers, json=payload, timeout=30)
         if response.status_code == 200:
             text_response = response.json()['candidates'][0]['content']['parts'][0]['text']
@@ -119,7 +123,7 @@ def fix_arabic(text):
     reshaper = arabic_reshaper.ArabicReshaper(configuration={'delete_harakat': False, 'support_ligatures': True})
     return get_display(reshaper.reshape(padded_text))
 
-# ================= قنوات القراء وروابط الطوارئ =================
+# ================= قنوات القراء وروابط الطوارئ (حصرياً للقراء المفضلين) =================
 CHANNELS = [
     {"url": "https://www.youtube.com/@abdullahshaab1/videos", "name": "عبدالله شعبان"},
     {"url": "https://www.youtube.com/@9li9/videos", "name": "عبدالرحمن مسعد"}
@@ -152,24 +156,48 @@ def setup_cookies():
         return "cookies.txt"
     return None
 
+# ================= 🛡️ دبابة التحميل الصارمة (تطبع كل الأخطاء لتخطي الحماية) =================
 def download_url_safe(url, ext="mp3"):
+    print(f"🔗 جاري محاولة سحب الملف المباشر...")
+    
+    # 1. المحاولة الأساسية عبر الطلب المباشر
     try:
-        try:
-            from curl_cffi import requests as c_requests
-            r = c_requests.get(url, impersonate="chrome", timeout=60)
-        except:
-            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-            r = requests.get(url, headers=headers, timeout=60, stream=True)
-            
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+        r = requests.get(url, headers=headers, timeout=60, allow_redirects=True)
+        print(f"📡 استجابة السيرفر الأساسية: {r.status_code}")
+        
         if r.status_code in [200, 206]:
             fname = f"raw_audio_{random.randint(100,999)}.{ext}"
-            with open(fname, "wb") as f:
-                try: f.write(r.content) 
-                except:
-                    for chunk in r.iter_content(8192): f.write(chunk) 
-            if is_valid_audio(fname): return fname
-            else: os.remove(fname)
-    except: pass
+            with open(fname, "wb") as f: f.write(r.content)
+            
+            if is_valid_audio(fname): 
+                print("✅ تم التحميل وفحص الجودة بنجاح (الطلب المباشر)!")
+                return fname
+            else: 
+                print("⚠️ الملف المحمل غير صالح أو فارغ (تم الحذف).")
+                os.remove(fname)
+        else:
+            print(f"❌ السيرفر رفض الطلب المباشر بسبب حماية (Cloudflare أو غيره).")
+    except Exception as e: 
+        print(f"❌ خطأ في الاتصال المباشر: {e}")
+
+    # 2. المحاولة الهجومية: استخدام yt-dlp لكسر حماية الرابط وسحبه
+    print("🔄 جاري تفعيل محرك yt-dlp لكسر الحماية وسحب الرابط المباشر...")
+    try:
+        fname = f"raw_audio_{random.randint(100,999)}.{ext}"
+        ydl_opts = {'outtmpl': fname, 'quiet': True}
+        with YoutubeDL(ydl_opts) as ydl_dl:
+            ydl_dl.download([url])
+        
+        if is_valid_audio(fname):
+            print("✅ نجح محرك yt-dlp في سحب الرابط بالقوة!")
+            return fname
+        else:
+            try: os.remove(fname)
+            except: pass
+    except Exception as e:
+        print(f"❌ فشل محرك yt-dlp في سحب الرابط: {e}")
+
     return None
 
 # ================= بروتوكول التشغيل الرئيسي =================
@@ -183,7 +211,7 @@ def fetch_and_trim_audio():
     is_thursday = datetime.now().strftime("%A") == "Thursday"
     available_videos_pool = []
     
-    print("جاري فحص مخزون الفيديوهات...")
+    print("جاري فحص مخزون الفيديوهات في القنوات...")
     with YoutubeDL(ydl_opts_flat) as ydl:
         for channel in CHANNELS:
             try:
@@ -232,7 +260,7 @@ def fetch_and_trim_audio():
                     status = data.get("status")
                     
                     if status == "ok" and data.get("link"):
-                        print("🎉 تم تحويل المقطع بنجاح، جاري سحبه...")
+                        print("🎉 تم تحويل المقطع بنجاح في سيرفراتهم، جاري بدء السحب...")
                         downloaded_file = download_url_safe(data["link"])
                         break
                     elif status == "processing":
@@ -251,15 +279,27 @@ def fetch_and_trim_audio():
                 print(f"❌ خطأ أثناء الاتصال: {e}")
                 break
 
+    # ================= 🎥 يوتيوب كبديل محلي =================
+    if not downloaded_file:
+        print("2️⃣ جاري التحميل محلياً عبر (yt-dlp)...")
+        try:
+            ydl_opts = {'format': 'ba/best', 'outtmpl': 'raw_audio_yt.%(ext)s', 'quiet': True, 'extractor_args': {'youtube': ['player_client=ios']}}
+            if cookie_file: ydl_opts['cookiefile'] = cookie_file
+            with YoutubeDL(ydl_opts) as ydl_dl: ydl_dl.download([video_url])
+            files = glob.glob("raw_audio_yt.*")
+            if files and is_valid_audio(files[0]): downloaded_file = files[0]
+        except Exception as e: print(f"❌ فشل يوتيوب المحلي: {e}")
+
     # ================= 🛡️ خطة الطوارئ القصوى =================
     if not downloaded_file:
         print("⚠️ فشل يوتيوب تماماً! تفعيل خطة الطوارئ البديلة...")
+        send_telegram_alert("⚠️ *تنبيه:*\nواجهت الأداة مشكلة في سحب المقطع من يوتيوب. تم تفعيل خطة الطوارئ البديلة لضمان نشر المقطع اليوم.")
         emergency = random.choice(EMERGENCY_LINKS)
         downloaded_file = download_url_safe(emergency["url"])
         if downloaded_file:
             video_title, vid_id, selected_reciter = emergency["title"] + " (طوارئ)", "EMERGENCY_" + str(random.randint(1000, 9999)), emergency["reciter"]
             start_time_for_clip = random.uniform(0.0, 180.0)
-        else: raise Exception("فشل التحميل من يوتيوب وخطة الطوارئ أيضاً.")
+        else: raise Exception("فشل نظام RapidAPI وفشلت خطة الطوارئ أيضاً.")
 
     print("🧠 جاري تحليل الصوت وإجراء القص الذكي...")
     model = WhisperModel("base", device="cpu", compute_type="int8")
@@ -295,6 +335,8 @@ def fetch_and_trim_audio():
         
     final_audio_duration = absolute_end - absolute_start
     trimmed_audio = full_audio.subclip(absolute_start, absolute_end)
+    
+    # 🌟 التلاشي الصوتي السينمائي (يمنع القص المفاجئ) 🌟
     final_audio = trimmed_audio.audio_fadein(1.0).audio_fadeout(2.5) 
     final_audio.write_audiofile("final_audio.mp3", logger=None)
     
@@ -304,7 +346,7 @@ def fetch_and_trim_audio():
     
     return final_audio_duration, video_title, vid_id, selected_reciter, history
 
-# ================= 3. جلب فيديوهات الطبيعة =================
+# ================= 3. جلب فيديوهات الطبيعة وملء الشاشة =================
 def fetch_pexels_videos(target_duration, history):
     today = datetime.now().strftime("%A")
     query = "drone landscape, nature" if today in ['Sunday', 'Tuesday', 'Thursday'] else "clouds, peaceful nature"
@@ -320,6 +362,7 @@ def fetch_pexels_videos(target_duration, history):
         with open(vid_name, "wb") as f: f.write(vid_data)
         
         clip = VideoFileClip(vid_name)
+        # 🌟 تفعيل المقص الذكي لملء الشاشة وإزالة الحواف السوداء 🌟
         vertical_clip = crop_to_vertical(clip)
         
         video_files.append((vertical_clip, vid_name))
@@ -353,26 +396,42 @@ def publish_to_instagram(reciter_name, title):
     try:
         url_tg = f"https://api.telegram.org/bot{ERROR_BOT_TOKEN}/sendVideo"
         with open('final_reel.mp4', 'rb') as video_file:
-            requests.post(url_tg, data={'chat_id': ADMIN_CHAT_ID, 'caption': f"🎥 جاهز للنشر!\nالقارئ: {reciter_name}\nالسورة: {title}"}, files={'video': video_file})
+            requests.post(url_tg, data={'chat_id': ADMIN_CHAT_ID, 'caption': f"🎥 مقطع جاهز!\n\nالقارئ: {reciter_name}\nالعنوان: {title}"}, files={'video': video_file}, timeout=200)
     except: pass
 
-    caption = f"✨ سورة الكهف نور ما بين الجمعتين.\nالقارئ: {reciter_name} 🤍\n#قرآن #عافية_قلب" if datetime.now().strftime("%A") == "Thursday" else f"عافية لقلبك 🤍. القارئ {reciter_name}.\n#قرآن #تلاوة #عافية_قلب"
+    is_thursday = datetime.now().strftime("%A") == "Thursday"
+    if is_thursday:
+        caption = f"✨ سورة الكهف نور ما بين الجمعتين. لا تنسوا السنن والصلاة على النبي ﷺ.\n\nتلاوة القارئ: {reciter_name} 🤍\n#سورة_الكهف #يوم_الجمعة #قرآن #عافية_قلب"
+    else:
+        caption = f"عافية لقلبك 🤍. أرح مسمعك بتلاوة القارئ {reciter_name}.\n\n#قرآن #تلاوة #عافية_قلب"
     
     cl = Client()
     if os.path.exists(SESSION_FILE): cl.load_settings(SESSION_FILE)
-    cl.login(IG_USERNAME, IG_PASSWORD)
-    cl.dump_settings(SESSION_FILE)
-    cl.clip_upload("final_reel.mp4", caption)
-
-# ================= التشغيل الرئيسي =================
-if __name__ == "__main__":
     try:
-        dur, title, vid_id, reciter, history = fetch_and_trim_audio()
-        clips_data, updated_history = fetch_pexels_videos(dur, history)
-        render_cinematic_video(dur, clips_data)
-        publish_to_instagram(reciter, title)
-        save_history(updated_history)
-        send_telegram_alert("✅ تم النشر بنجاح!")
+        cl.login(IG_USERNAME, IG_PASSWORD)
+        cl.dump_settings(SESSION_FILE)
+        cl.clip_upload("final_reel.mp4", caption)
+        print("🎉 تم النشر بنجاح!")
     except Exception as e:
-        send_telegram_alert(f"🚨 خطأ:\n`{str(e)}`")
-        sys.exit(1)
+        raise Exception(f"❌ فشل النشر: {str(e)}")
+
+# ================= التشغيل الرئيسي (بحلقة تكرار ذكية) =================
+if __name__ == "__main__":
+    max_retries = 3 
+    for attempt in range(1, max_retries + 1):
+        try:
+            print(f"\n🚀 محاولة {attempt}/{max_retries}...")
+            dur, title, vid_id, reciter, history = fetch_and_trim_audio()
+            clips_data, updated_history = fetch_pexels_videos(dur, history)
+            render_cinematic_video(dur, clips_data)
+            publish_to_instagram(reciter, title)
+            save_history(updated_history)
+            send_telegram_alert("✅ تم النشر بنجاح!")
+            break 
+        except Exception as e:
+            if attempt < max_retries:
+                send_telegram_alert(f"⚠️ فشل محاولة {attempt}. جاري إعادة المحاولة...\nالسبب: `{str(e)}`")
+                time.sleep(10)
+            else:
+                send_telegram_alert(f"🚨 فشل نهائي بعد 3 محاولات!\nالسبب: `{str(e)}`")
+                sys.exit(1)
