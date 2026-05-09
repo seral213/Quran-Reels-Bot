@@ -30,7 +30,7 @@ ERROR_BOT_TOKEN = os.environ.get("ERROR_BOT_TOKEN")
 ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID")
 YOUTUBE_COOKIES = os.environ.get("YOUTUBE_COOKIES")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
-RAPID_API_KEY = os.environ.get("RAPID_API_KEY") # المفتاح الجديد
+RAPID_API_KEY = os.environ.get("RAPID_API_KEY")
 HISTORY_FILE = "history.json"
 SESSION_FILE = "session.json"
 
@@ -87,14 +87,11 @@ def get_smart_timestamps(transcript_segments):
     try:
         print("🔄 جاري الاتصال المباشر بعقل Gemini...")
         response = requests.post(api_url, headers=headers, json=payload, timeout=30)
-        
         if response.status_code == 200:
             resp_data = response.json()
             text_response = resp_data['candidates'][0]['content']['parts'][0]['text']
-            
             match_start = re.search(r'START:\s*([0-9.]+)', text_response)
             match_end = re.search(r'END:\s*([0-9.]+)', text_response)
-            
             if match_start and match_end:
                 start = float(match_start.group(1))
                 end = float(match_end.group(1)) + 1.5 
@@ -121,11 +118,11 @@ CHANNELS = [
     {"url": "https://www.youtube.com/@9li9/videos", "name": "عبدالرحمن مسعد"}
 ]
 
-# === روابط الطوارئ المطلقة ===
+# === روابط الطوارئ المطلقة (تم تحديثها لسيرفرات أقوى) ===
 EMERGENCY_LINKS = [
-    {"url": "https://server16.mp3quran.net/a_mosaad/018.mp3", "title": "سورة الكهف", "reciter": "عبدالرحمن مسعد"},
-    {"url": "https://server16.mp3quran.net/a_mosaad/067.mp3", "title": "سورة الملك", "reciter": "عبدالرحمن مسعد"},
-    {"url": "https://server16.mp3quran.net/a_mosaad/055.mp3", "title": "سورة الرحمن", "reciter": "عبدالرحمن مسعد"}
+    {"url": "https://server14.mp3quran.net/mosaad/018.mp3", "title": "سورة الكهف", "reciter": "عبدالرحمن مسعد"},
+    {"url": "https://server14.mp3quran.net/mosaad/067.mp3", "title": "سورة الملك", "reciter": "عبدالرحمن مسعد"},
+    {"url": "https://server8.mp3quran.net/afs/055.mp3", "title": "سورة الرحمن", "reciter": "مشاري العفاسي"}
 ]
 
 def load_history():
@@ -148,18 +145,31 @@ def setup_cookies():
         return "cookies.txt"
     return None
 
+# ================= دالة التحميل الشبحية (المحدثة لتخطي Cloudflare) =================
 def download_url_safe(url, ext="mp3"):
     try:
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-        r = requests.get(url, headers=headers, timeout=(5, 30), stream=True)
+        print(f"🔗 جاري محاولة سحب الملف من: {url[:60]}...")
+        # استخدام المتصفح الشبح (curl_cffi) بدلاً من requests العادية
+        from curl_cffi import requests as c_requests
+        
+        # التخفي الكامل كمتصفح Chrome على Windows
+        r = c_requests.get(url, impersonate="chrome", timeout=60)
+        
         if r.status_code in [200, 206]:
             fname = f"raw_audio_{random.randint(100,999)}.{ext}"
             with open(fname, "wb") as f:
-                for chunk in r.iter_content(chunk_size=8192):
-                    if chunk: f.write(chunk)
-            if is_valid_audio(fname): return fname
-            else: os.remove(fname)
-    except: pass
+                f.write(r.content)
+                
+            if is_valid_audio(fname): 
+                print("✅ تم التحميل وفحص الجودة بنجاح!")
+                return fname
+            else: 
+                print("⚠️ تم التحميل ولكن الملف معطوب أو وهمي (تم حذفه).")
+                os.remove(fname)
+        else:
+            print(f"❌ السيرفر المستضيف رفض إعطاءنا الملف. كود الخطأ: {r.status_code}")
+    except Exception as e: 
+        print(f"❌ خطأ برمجي أثناء السحب: {e}")
     return None
 
 # ================= بروتوكول التشغيل الرئيسي =================
@@ -226,21 +236,28 @@ def fetch_and_trim_audio():
                 "x-rapidapi-key": RAPID_API_KEY,
                 "x-rapidapi-host": "youtube-mp36.p.rapidapi.com"
             }
-            res = requests.get(url, headers=headers, params=querystring, timeout=30).json()
+            res = requests.get(url, headers=headers, params=querystring, timeout=30)
             
-            if res.get("link"):
-                downloaded_file = download_url_safe(res["link"])
-                if downloaded_file:
-                    print("🎉 تم التحميل بنجاح عبر RapidAPI!")
-            elif res.get("message"):
-                print(f"❌ رسالة من RapidAPI: {res.get('message')}")
+            if res.status_code == 200:
+                res_data = res.json()
+                print(f"📦 استجابة RapidAPI: {str(res_data)[:150]}...") # لمعرفة ما أرسل بالضبط
+                
+                # التقاط الرابط أياً كان مساره في الـ JSON
+                dl_link = res_data.get("link") or res_data.get("url") or res_data.get("download_url")
+                
+                if dl_link:
+                    downloaded_file = download_url_safe(dl_link)
+                else:
+                    print(f"❌ رسالة من RapidAPI: لم يرسل رابطاً صالحاً. المحتوى: {res_data}")
+            else:
+                print(f"❌ RapidAPI رفض الطلب. كود الخطأ: {res.status_code}")
         except Exception as e:
             print(f"❌ فشل الاتصال بـ RapidAPI: {e}")
 
     # ================= 🛡️ خطة الطوارئ القصوى =================
     if not downloaded_file:
         print("⚠️ فشل RapidAPI! تفعيل خطة الطوارئ فوراً...")
-        send_telegram_alert("⚠️ *تنبيه:*\nواجهت الأداة مشكلة في سحب المقطع من يوتيوب. تم تفعيل خطة الطوارئ البديلة لضمان نشر المقطع اليوم.")
+        send_telegram_alert("⚠️ *تنبيه:*\nواجهت الأداة مشكلة في سحب المقطع. تم تفعيل خطة الطوارئ البديلة لضمان نشر المقطع اليوم.")
         
         emergency_choice = random.choice(EMERGENCY_LINKS)
         downloaded_file = download_url_safe(emergency_choice["url"])
@@ -250,7 +267,7 @@ def fetch_and_trim_audio():
             selected_reciter = emergency_choice["reciter"]
             start_time_for_clip = random.uniform(0.0, 180.0)
         else:
-            raise Exception("فشل نظام RapidAPI وفشلت خطة الطوارئ أيضاً!")
+            raise Exception("فشل نظام RapidAPI وفشلت خطة الطوارئ أيضاً! السيرفرات تحظر التحميل تماماً.")
 
     print("🧠 جاري تحليل الصوت بالذكاء الاصطناعي...")
     model = WhisperModel("base", device="cpu", compute_type="int8")
