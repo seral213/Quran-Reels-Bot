@@ -31,7 +31,6 @@ ERROR_BOT_TOKEN = os.environ.get("ERROR_BOT_TOKEN")
 ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID")
 YOUTUBE_COOKIES = os.environ.get("YOUTUBE_COOKIES")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
-RAPID_API_KEY = os.environ.get("RAPID_API_KEY")
 HISTORY_FILE = "history.json"
 SESSION_FILE = "session.json"
 
@@ -55,21 +54,18 @@ def is_valid_audio(filepath):
     except:
         return False
 
-# ================= ✂️ المقص الذكي للشاشة الكاملة (جديد) =================
+# ================= ✂️ المقص الذكي للشاشة الكاملة =================
 def crop_to_vertical(clip):
-    """تقوم هذه الدالة بملء الشاشة بالكامل (9:16) بدون أي حواف سوداء"""
     target_ratio = 9 / 16
     clip_ratio = clip.w / clip.h
-    
-    if clip_ratio > target_ratio: # الفيديو عريض (أفقي) ويحتاج قص من الجوانب
+    if clip_ratio > target_ratio: 
         new_w = int(clip.h * target_ratio)
         x_center = clip.w / 2
         cropped_clip = crop(clip, width=new_w, height=clip.h, x_center=x_center)
-    else: # الفيديو طويل جداً ويحتاج قص من الأعلى والأسفل
+    else: 
         new_h = int(clip.w / target_ratio)
         y_center = clip.h / 2
         cropped_clip = crop(clip, width=clip.w, height=new_h, y_center=y_center)
-        
     return resize(cropped_clip, height=1920, width=1080)
 
 # ================= 🧠 القص الذكي عبر الاتصال المباشر (REST API) =================
@@ -81,7 +77,6 @@ def get_smart_timestamps(transcript_segments):
     for seg in transcript_segments:
         full_text_with_time += f"[{seg.start:.2f}s - {seg.end:.2f}s]: {seg.text}\n"
 
-    # أمر صارم جداً للذكاء الاصطناعي لتجنب التخريف
     prompt = f"""
     أنت خبير في القرآن الكريم. أمامك نص مستخرج من تلاوة قرآنية مع التوقيت الزمني.
     المطلوب تحديد نقطة البداية ونقطة النهاية بدقة (بالثواني) لعمل مقطع فيديو ريلز مدته بين 40 و 58 ثانية:
@@ -106,7 +101,6 @@ def get_smart_timestamps(transcript_segments):
             text_response = response.json()['candidates'][0]['content']['parts'][0]['text']
             match_start = re.search(r'START:\s*([0-9.]+)', text_response)
             match_end = re.search(r'END:\s*([0-9.]+)', text_response)
-            
             if match_start and match_end:
                 return float(match_start.group(1)), float(match_end.group(1)), None
             return None, None, "تنسيق الرد غير صحيح من الذكاء الاصطناعي."
@@ -121,18 +115,17 @@ def fix_arabic(text):
     reshaper = arabic_reshaper.ArabicReshaper(configuration={'delete_harakat': False, 'support_ligatures': True})
     return get_display(reshaper.reshape(padded_text))
 
-# ================= قنوات القراء وروابط الطوارئ النقية =================
+# ================= قنوات القراء وروابط الطوارئ =================
 CHANNELS = [
     {"url": "https://www.youtube.com/@abdullahshaab1/videos", "name": "عبدالله شعبان"},
     {"url": "https://www.youtube.com/@9li9/videos", "name": "عبدالرحمن مسعد"}
 ]
 
-# تم إزالة العفاسي وحصر الطوارئ في قرائك المفضلين فقط
+# تم تصحيح الروابط لسيرفر 14 لتعمل بنسبة 100%
 EMERGENCY_LINKS = [
-    {"url": "https://server16.mp3quran.net/a_mosaad/018.mp3", "title": "سورة الكهف", "reciter": "عبدالرحمن مسعد"},
-    {"url": "https://server16.mp3quran.net/a_mosaad/067.mp3", "title": "سورة الملك", "reciter": "عبدالرحمن مسعد"},
-    {"url": "https://server16.mp3quran.net/a_mosaad/055.mp3", "title": "سورة الرحمن", "reciter": "عبدالرحمن مسعد"},
-    {"url": "https://server16.mp3quran.net/a_mosaad/056.mp3", "title": "سورة الواقعة", "reciter": "عبدالرحمن مسعد"}
+    {"url": "https://server14.mp3quran.net/mosaad/018.mp3", "title": "سورة الكهف", "reciter": "عبدالرحمن مسعد"},
+    {"url": "https://server14.mp3quran.net/mosaad/067.mp3", "title": "سورة الملك", "reciter": "عبدالرحمن مسعد"},
+    {"url": "https://server14.mp3quran.net/mosaad/056.mp3", "title": "سورة الواقعة", "reciter": "عبدالرحمن مسعد"}
 ]
 
 def load_history():
@@ -155,24 +148,27 @@ def setup_cookies():
         return "cookies.txt"
     return None
 
+# ================= دالة التحميل الشبحية عبر curl_cffi =================
 def download_url_safe(url, ext="mp3"):
     try:
-        # استخدام المتصفح الشبح (curl_cffi) إذا توفر، وإلا requests العادية
-        try:
-            from curl_cffi import requests as c_requests
-            r = c_requests.get(url, impersonate="chrome", timeout=60)
-        except:
-            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-            r = requests.get(url, headers=headers, timeout=60, stream=True)
-            
+        from curl_cffi import requests as c_requests
+        r = c_requests.get(url, impersonate="chrome", timeout=60)
         if r.status_code in [200, 206]:
             fname = f"raw_audio_{random.randint(100,999)}.{ext}"
-            with open(fname, "wb") as f:
-                try: f.write(r.content) # for curl_cffi
-                except:
-                    for chunk in r.iter_content(8192): f.write(chunk) # for requests
+            with open(fname, "wb") as f: f.write(r.content)
             if is_valid_audio(fname): return fname
             else: os.remove(fname)
+    except: pass
+    return None
+
+# ================= السحب من سيرفرات خارجية (لتخطي الحظر) =================
+def fetch_from_public_api(video_url):
+    try:
+        from curl_cffi import requests as c_requests
+        res = c_requests.get(f"https://api.ryzendesu.vip/api/downloader/ytmp3?url={video_url}", impersonate="chrome", timeout=30)
+        if res.status_code == 200:
+            dl_link = res.json().get("url") or res.json().get("data", {}).get("url")
+            if dl_link: return download_url_safe(dl_link)
     except: pass
     return None
 
@@ -220,33 +216,24 @@ def fetch_and_trim_audio():
 
     downloaded_file = None
 
-    # 1. محاولة RapidAPI مع التحقق من صحة الرابط
-    if RAPID_API_KEY and not downloaded_file:
-        print("1️⃣ جاري التحميل عبر RapidAPI...")
-        try:
-            url = "https://youtube-mp36.p.rapidapi.com/dl"
-            headers = {"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": "youtube-mp36.p.rapidapi.com"}
-            res = requests.get(url, headers=headers, params={"id": vid_id}, timeout=30)
-            if res.status_code == 200:
-                dl_link = res.json().get("link") or res.json().get("download_url")
-                if dl_link and "http" in dl_link:
-                    downloaded_file = download_url_safe(dl_link)
-        except: pass
+    # 1. محاولة yt-dlp المتخفية كتطبيق أندرويد (تتجاوز تحدي JS)
+    print("1️⃣ جاري التحميل محلياً (تخطي تحديات يوتيوب)...")
+    ydl_opts = {'format': 'ba/best', 'outtmpl': 'raw_audio_yt.%(ext)s', 'quiet': True, 'extractor_args': {'youtube': ['player_client=android']}}
+    if cookie_file: ydl_opts['cookiefile'] = cookie_file
+    try:
+        with YoutubeDL(ydl_opts) as ydl_dl: ydl_dl.download([video_url])
+        files = glob.glob("raw_audio_yt.*")
+        if files and is_valid_audio(files[0]): downloaded_file = files[0]
+    except: pass
 
-    # 2. محاولة yt-dlp المحلية الصامتة (محدثة لتخطي حظر السيرفرات)
+    # 2. الاستعانة بالسيرفرات الخارجية
     if not downloaded_file:
-        print("2️⃣ جاري التحميل محلياً (yt-dlp)...")
-        ydl_opts = {'format': 'ba/best', 'outtmpl': 'raw_audio_yt.%(ext)s', 'quiet': True, 'extractor_args': {'youtube': ['player_client=ios']}}
-        if cookie_file: ydl_opts['cookiefile'] = cookie_file
-        try:
-            with YoutubeDL(ydl_opts) as ydl_dl: ydl_dl.download([video_url])
-            files = glob.glob("raw_audio_yt.*")
-            if files and is_valid_audio(files[0]): downloaded_file = files[0]
-        except: pass
+        print("2️⃣ جاري التحميل عبر السيرفرات الخارجية...")
+        downloaded_file = fetch_from_public_api(video_url)
 
-    # 3. خطة الطوارئ النقية (قرائك المفضلين فقط)
+    # 3. خطة الطوارئ المُصححة
     if not downloaded_file:
-        print("⚠️ فشل يوتيوب تماماً! تفعيل خطة الطوارئ البديلة...")
+        print("⚠️ تفعيل خطة الطوارئ البديلة...")
         emergency = random.choice(EMERGENCY_LINKS)
         downloaded_file = download_url_safe(emergency["url"])
         if downloaded_file:
@@ -267,7 +254,6 @@ def fetch_and_trim_audio():
 
     rel_start, rel_end, _ = get_smart_timestamps(segments_list)
     
-    # القص الآلي (المحسن) في حال فشل الذكاء الاصطناعي
     if rel_start is None or rel_end is None:
         rel_start = 0.0
         if start_time_for_clip == 0.0:
@@ -279,7 +265,7 @@ def fetch_and_trim_audio():
         for i in range(len(segments_list) - 1):
             if segments_list[i].end > (rel_start + 45.0):
                 gap = segments_list[i+1].start - segments_list[i].end
-                if gap > 1.2 and gap > best_gap: # يبحث عن سكوت حقيقي للقارئ
+                if gap > 1.2 and gap > best_gap: 
                     best_gap = gap; rel_end = segments_list[i].end + (gap/2); break
 
     absolute_start = start_time_for_clip + rel_start
@@ -289,8 +275,6 @@ def fetch_and_trim_audio():
         
     final_audio_duration = absolute_end - absolute_start
     trimmed_audio = full_audio.subclip(absolute_start, absolute_end)
-    
-    # === التلاشي الصوتي السينمائي لحل مشكلة القص الحاد ===
     final_audio = trimmed_audio.audio_fadein(1.0).audio_fadeout(2.5) 
     final_audio.write_audiofile("final_audio.mp3", logger=None)
     
@@ -300,7 +284,7 @@ def fetch_and_trim_audio():
     
     return final_audio_duration, video_title, vid_id, selected_reciter, history
 
-# ================= 3. جلب فيديوهات الطبيعة وملء الشاشة =================
+# ================= 3. جلب فيديوهات الطبيعة =================
 def fetch_pexels_videos(target_duration, history):
     today = datetime.now().strftime("%A")
     query = "drone landscape, nature" if today in ['Sunday', 'Tuesday', 'Thursday'] else "clouds, peaceful nature"
@@ -316,7 +300,6 @@ def fetch_pexels_videos(target_duration, history):
         with open(vid_name, "wb") as f: f.write(vid_data)
         
         clip = VideoFileClip(vid_name)
-        # تطبيق المقص الذكي لملء الشاشة بالكامل!
         vertical_clip = crop_to_vertical(clip)
         
         video_files.append((vertical_clip, vid_name))
@@ -350,10 +333,10 @@ def publish_to_instagram(reciter_name, title):
     try:
         url_tg = f"https://api.telegram.org/bot{ERROR_BOT_TOKEN}/sendVideo"
         with open('final_reel.mp4', 'rb') as video_file:
-            requests.post(url_tg, data={'chat_id': ADMIN_CHAT_ID, 'caption': f"🎥 جاهز للنشر!\nالقارئ: {reciter_name}\nالسورة: {title}"}, files={'video': video_file})
+            requests.post(url_tg, data={'chat_id': ADMIN_CHAT_ID, 'caption': f"🎥 مقطع جاهز!\nالقارئ: {reciter_name}\nالسورة: {title}"}, files={'video': video_file})
     except: pass
 
-    caption = f"✨ سورة الكهف نور ما بين الجمعتين.\nالقارئ: {reciter_name} 🤍\n#قرآن #عافية_قلب" if datetime.now().strftime("%A") == "Thursday" else f"عافية لقلبك 🤍. القارئ {reciter_name}.\n#قرآن #تلاوة #عافية_قلب"
+    caption = f"✨ سورة الكهف نور ما بين الجمعتين.\nالقارئ: {reciter_name} 🤍\n#سورة_الكهف #قرآن #عافية_قلب" if datetime.now().strftime("%A") == "Thursday" else f"عافية لقلبك 🤍. القارئ {reciter_name}.\n#قرآن #تلاوة #عافية_قلب"
     
     cl = Client()
     if os.path.exists(SESSION_FILE): cl.load_settings(SESSION_FILE)
