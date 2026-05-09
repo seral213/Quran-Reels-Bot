@@ -31,6 +31,7 @@ ERROR_BOT_TOKEN = os.environ.get("ERROR_BOT_TOKEN")
 ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID")
 YOUTUBE_COOKIES = os.environ.get("YOUTUBE_COOKIES")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+RAPID_API_KEY = os.environ.get("RAPID_API_KEY")
 HISTORY_FILE = "history.json"
 SESSION_FILE = "session.json"
 
@@ -58,6 +59,7 @@ def is_valid_audio(filepath):
 def crop_to_vertical(clip):
     target_ratio = 9 / 16
     clip_ratio = clip.w / clip.h
+    
     if clip_ratio > target_ratio: 
         new_w = int(clip.h * target_ratio)
         x_center = clip.w / 2
@@ -66,9 +68,10 @@ def crop_to_vertical(clip):
         new_h = int(clip.w / target_ratio)
         y_center = clip.h / 2
         cropped_clip = crop(clip, width=clip.w, height=new_h, y_center=y_center)
+        
     return resize(cropped_clip, height=1920, width=1080)
 
-# ================= 🧠 القص الذكي عبر الاتصال المباشر (REST API) =================
+# ================= 🧠 القص الذكي عبر الاتصال المباشر =================
 def get_smart_timestamps(transcript_segments):
     if not GEMINI_API_KEY:
         return None, None, "مفتاح GEMINI_API_KEY مفقود."
@@ -101,6 +104,7 @@ def get_smart_timestamps(transcript_segments):
             text_response = response.json()['candidates'][0]['content']['parts'][0]['text']
             match_start = re.search(r'START:\s*([0-9.]+)', text_response)
             match_end = re.search(r'END:\s*([0-9.]+)', text_response)
+            
             if match_start and match_end:
                 return float(match_start.group(1)), float(match_end.group(1)), None
             return None, None, "تنسيق الرد غير صحيح من الذكاء الاصطناعي."
@@ -121,11 +125,11 @@ CHANNELS = [
     {"url": "https://www.youtube.com/@9li9/videos", "name": "عبدالرحمن مسعد"}
 ]
 
-# تم تصحيح الروابط لسيرفر 14 لتعمل بنسبة 100%
 EMERGENCY_LINKS = [
-    {"url": "https://server14.mp3quran.net/mosaad/018.mp3", "title": "سورة الكهف", "reciter": "عبدالرحمن مسعد"},
-    {"url": "https://server14.mp3quran.net/mosaad/067.mp3", "title": "سورة الملك", "reciter": "عبدالرحمن مسعد"},
-    {"url": "https://server14.mp3quran.net/mosaad/056.mp3", "title": "سورة الواقعة", "reciter": "عبدالرحمن مسعد"}
+    {"url": "https://server16.mp3quran.net/a_mosaad/018.mp3", "title": "سورة الكهف", "reciter": "عبدالرحمن مسعد"},
+    {"url": "https://server16.mp3quran.net/a_mosaad/067.mp3", "title": "سورة الملك", "reciter": "عبدالرحمن مسعد"},
+    {"url": "https://server16.mp3quran.net/a_mosaad/055.mp3", "title": "سورة الرحمن", "reciter": "عبدالرحمن مسعد"},
+    {"url": "https://server16.mp3quran.net/a_mosaad/056.mp3", "title": "سورة الواقعة", "reciter": "عبدالرحمن مسعد"}
 ]
 
 def load_history():
@@ -148,27 +152,23 @@ def setup_cookies():
         return "cookies.txt"
     return None
 
-# ================= دالة التحميل الشبحية عبر curl_cffi =================
 def download_url_safe(url, ext="mp3"):
     try:
-        from curl_cffi import requests as c_requests
-        r = c_requests.get(url, impersonate="chrome", timeout=60)
+        try:
+            from curl_cffi import requests as c_requests
+            r = c_requests.get(url, impersonate="chrome", timeout=60)
+        except:
+            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+            r = requests.get(url, headers=headers, timeout=60, stream=True)
+            
         if r.status_code in [200, 206]:
             fname = f"raw_audio_{random.randint(100,999)}.{ext}"
-            with open(fname, "wb") as f: f.write(r.content)
+            with open(fname, "wb") as f:
+                try: f.write(r.content) 
+                except:
+                    for chunk in r.iter_content(8192): f.write(chunk) 
             if is_valid_audio(fname): return fname
             else: os.remove(fname)
-    except: pass
-    return None
-
-# ================= السحب من سيرفرات خارجية (لتخطي الحظر) =================
-def fetch_from_public_api(video_url):
-    try:
-        from curl_cffi import requests as c_requests
-        res = c_requests.get(f"https://api.ryzendesu.vip/api/downloader/ytmp3?url={video_url}", impersonate="chrome", timeout=30)
-        if res.status_code == 200:
-            dl_link = res.json().get("url") or res.json().get("data", {}).get("url")
-            if dl_link: return download_url_safe(dl_link)
     except: pass
     return None
 
@@ -216,24 +216,44 @@ def fetch_and_trim_audio():
 
     downloaded_file = None
 
-    # 1. محاولة yt-dlp المتخفية كتطبيق أندرويد (تتجاوز تحدي JS)
-    print("1️⃣ جاري التحميل محلياً (تخطي تحديات يوتيوب)...")
-    ydl_opts = {'format': 'ba/best', 'outtmpl': 'raw_audio_yt.%(ext)s', 'quiet': True, 'extractor_args': {'youtube': ['player_client=android']}}
-    if cookie_file: ydl_opts['cookiefile'] = cookie_file
-    try:
-        with YoutubeDL(ydl_opts) as ydl_dl: ydl_dl.download([video_url])
-        files = glob.glob("raw_audio_yt.*")
-        if files and is_valid_audio(files[0]): downloaded_file = files[0]
-    except: pass
+    # ================= 🚀 RapidAPI (نظام الصبر والمعالجة) =================
+    if RAPID_API_KEY and not downloaded_file:
+        print("1️⃣ جاري التحميل عبر RapidAPI...")
+        url = "https://youtube-mp36.p.rapidapi.com/dl"
+        headers = {"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": "youtube-mp36.p.rapidapi.com"}
+        
+        # حلقة تكرار (Loop) للانتظار حتى تنتهي الأداة من التحويل
+        max_retries = 10
+        for i in range(max_retries):
+            try:
+                res = requests.get(url, headers=headers, params={"id": vid_id}, timeout=30)
+                if res.status_code == 200:
+                    data = res.json()
+                    status = data.get("status")
+                    
+                    if status == "ok" and data.get("link"):
+                        print("🎉 تم تحويل المقطع بنجاح، جاري سحبه...")
+                        downloaded_file = download_url_safe(data["link"])
+                        break
+                    elif status == "processing":
+                        print(f"⏳ المقطع قيد المعالجة (محاولة {i+1}/{max_retries})... انتظار 3 ثواني.")
+                        time.sleep(3)
+                    elif status == "fail":
+                        print(f"❌ فشل التحويل من السيرفر: {data.get('msg')}")
+                        break
+                    else:
+                        print(f"⚠️ استجابة غير متوقعة: {data}")
+                        break
+                else:
+                    print(f"❌ RapidAPI رفض الطلب. كود: {res.status_code}")
+                    break
+            except Exception as e:
+                print(f"❌ خطأ أثناء الاتصال: {e}")
+                break
 
-    # 2. الاستعانة بالسيرفرات الخارجية
+    # ================= 🛡️ خطة الطوارئ القصوى =================
     if not downloaded_file:
-        print("2️⃣ جاري التحميل عبر السيرفرات الخارجية...")
-        downloaded_file = fetch_from_public_api(video_url)
-
-    # 3. خطة الطوارئ المُصححة
-    if not downloaded_file:
-        print("⚠️ تفعيل خطة الطوارئ البديلة...")
+        print("⚠️ فشل يوتيوب تماماً! تفعيل خطة الطوارئ البديلة...")
         emergency = random.choice(EMERGENCY_LINKS)
         downloaded_file = download_url_safe(emergency["url"])
         if downloaded_file:
@@ -333,10 +353,10 @@ def publish_to_instagram(reciter_name, title):
     try:
         url_tg = f"https://api.telegram.org/bot{ERROR_BOT_TOKEN}/sendVideo"
         with open('final_reel.mp4', 'rb') as video_file:
-            requests.post(url_tg, data={'chat_id': ADMIN_CHAT_ID, 'caption': f"🎥 مقطع جاهز!\nالقارئ: {reciter_name}\nالسورة: {title}"}, files={'video': video_file})
+            requests.post(url_tg, data={'chat_id': ADMIN_CHAT_ID, 'caption': f"🎥 جاهز للنشر!\nالقارئ: {reciter_name}\nالسورة: {title}"}, files={'video': video_file})
     except: pass
 
-    caption = f"✨ سورة الكهف نور ما بين الجمعتين.\nالقارئ: {reciter_name} 🤍\n#سورة_الكهف #قرآن #عافية_قلب" if datetime.now().strftime("%A") == "Thursday" else f"عافية لقلبك 🤍. القارئ {reciter_name}.\n#قرآن #تلاوة #عافية_قلب"
+    caption = f"✨ سورة الكهف نور ما بين الجمعتين.\nالقارئ: {reciter_name} 🤍\n#قرآن #عافية_قلب" if datetime.now().strftime("%A") == "Thursday" else f"عافية لقلبك 🤍. القارئ {reciter_name}.\n#قرآن #تلاوة #عافية_قلب"
     
     cl = Client()
     if os.path.exists(SESSION_FILE): cl.load_settings(SESSION_FILE)
@@ -352,7 +372,7 @@ if __name__ == "__main__":
         render_cinematic_video(dur, clips_data)
         publish_to_instagram(reciter, title)
         save_history(updated_history)
-        send_telegram_alert("✅ تم النشر بنجاح بملء الشاشة وبقص احترافي!")
+        send_telegram_alert("✅ تم النشر بنجاح!")
     except Exception as e:
         send_telegram_alert(f"🚨 خطأ:\n`{str(e)}`")
         sys.exit(1)
