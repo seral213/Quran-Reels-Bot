@@ -6,4 +6,4 @@ curl-cffi
 instagrapi
 arabic_reshaper
 python-bidi
-google-generativeai
+google-generativeai>=0.5.0
