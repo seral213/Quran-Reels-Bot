@@ -12,6 +12,12 @@ from yt_dlp import YoutubeDL
 from faster_whisper import WhisperModel
 from moviepy.editor import VideoFileClip, AudioFileClip, concatenate_videoclips, TextClip, CompositeVideoClip, ColorClip
 
+# === السلاح النووي الجديد ===
+try:
+    from pytubefix import YouTube
+except ImportError:
+    pass
+
 # === استدعاءات إنستجرام ===
 try:
     from instagrapi import Client
@@ -45,7 +51,7 @@ def send_telegram_alert(message):
 def is_valid_audio(filepath):
     try:
         if not os.path.exists(filepath): return False
-        if os.path.getsize(filepath) < 50000: return False # الملف أصغر من 50 كيلو = وهمي
+        if os.path.getsize(filepath) < 50000: return False 
         clip = AudioFileClip(filepath)
         dur = clip.duration
         clip.close()
@@ -120,6 +126,13 @@ CHANNELS = [
     {"url": "https://www.youtube.com/@9li9/videos", "name": "عبدالرحمن مسعد"}
 ]
 
+# === روابط الطوارئ (تلاوات خاشعة مخزنة خارج يوتيوب) ===
+EMERGENCY_LINKS = [
+    {"url": "https://server16.mp3quran.net/a_mosaad/018.mp3", "title": "سورة الكهف", "reciter": "عبدالرحمن مسعد"},
+    {"url": "https://server16.mp3quran.net/a_mosaad/067.mp3", "title": "سورة الملك", "reciter": "عبدالرحمن مسعد"},
+    {"url": "https://server16.mp3quran.net/a_mosaad/055.mp3", "title": "سورة الرحمن", "reciter": "عبدالرحمن مسعد"}
+]
+
 def load_history():
     if os.path.exists(HISTORY_FILE):
         try:
@@ -140,18 +153,17 @@ def setup_cookies():
         return "cookies.txt"
     return None
 
-# ================= الدالة الصارمة للتحميل المباشر من الروابط =================
 def download_url_safe(url, ext="mp3"):
     try:
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-        r = requests.get(url, headers=headers, timeout=120, allow_redirects=True)
-        if r.status_code == 200 and len(r.content) > 100000: # يجب أن يكون أكبر من 100KB
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        r = requests.get(url, headers=headers, timeout=120, stream=True)
+        if r.status_code == 200:
             fname = f"raw_audio_{random.randint(100,999)}.{ext}"
-            with open(fname, "wb") as f: f.write(r.content)
-            if is_valid_audio(fname): 
-                return fname
-            else: 
-                os.remove(fname)
+            with open(fname, "wb") as f:
+                for chunk in r.iter_content(chunk_size=8192):
+                    f.write(chunk)
+            if is_valid_audio(fname): return fname
+            else: os.remove(fname)
     except: pass
     return None
 
@@ -190,7 +202,7 @@ def fetch_and_trim_audio():
 
     remaining_count = len(available_videos_pool)
     if remaining_count == 0:
-        raise Exception("❌ انتهت جميع الفيديوهات الصالحة في القنوات المحددة! يرجى إضافة قنوات جديدة أو مسح الذاكرة.")
+        raise Exception("❌ انتهت جميع الفيديوهات الصالحة في القنوات المحددة!")
     elif remaining_count <= 3:
         send_telegram_alert(f"🔔 *تنبيه قرب انتهاء المخزون!*\nمتبقي {remaining_count} فيديوهات صالحة فقط.")
 
@@ -206,59 +218,47 @@ def fetch_and_trim_audio():
     
     downloaded_file = None
     
-    # تنظيف شامل للملفات القديمة
     for f in glob.glob("raw_audio*") + ["temp_analysis.mp3", "final_audio.mp3"]:
         try: os.remove(f)
         except: pass
 
-    print("\n🚀 تفعيل دبابات الاختراق (أسلحة الجيل الرابع)...")
+    print("\n🚀 تفعيل أسلحة الاختراق المتقدمة...")
 
-    # 1. اختراق عبر سيرفرات الواتساب الآسيوية (BK9 API)
+    # السلاح 1: كاسر التشفير Pytubefix (يتخفى كتطبيق YouTube Music)
     if not downloaded_file:
-        print("1️⃣ جاري التحميل عبر شبكة BK9...")
+        print("1️⃣ جاري التحميل عبر السلاح النووي (Pytubefix)...")
+        try:
+            yt = YouTube(video_url, client='ANDROID_MUSIC')
+            stream = yt.streams.get_audio_only()
+            stream.download(filename="raw_audio.mp3")
+            if is_valid_audio("raw_audio.mp3"):
+                downloaded_file = "raw_audio.mp3"
+                print("🎉 تم التحميل بنجاح عبر Pytubefix!")
+            else:
+                os.remove("raw_audio.mp3")
+        except Exception as e:
+            print(f"❌ فشل Pytubefix: {e}")
+
+    # السلاح 2: اختراق عبر سيرفرات الواتساب الآسيوية (BK9 API)
+    if not downloaded_file:
+        print("2️⃣ جاري التحميل عبر شبكة BK9...")
         try:
             res = requests.get(f"https://bk9.fun/download/ytmp3?q={video_url}", timeout=20).json()
             if res.get("BK9", {}).get("url"): downloaded_file = download_url_safe(res["BK9"]["url"])
         except: pass
 
-    # 2. اختراق عبر سيرفرات DarkYasiya
+    # السلاح 3: اختراق عبر سيرفرات Ryzendesu
     if not downloaded_file:
-        print("2️⃣ جاري التحميل عبر شبكة DarkYasiya...")
-        try:
-            res = requests.get(f"https://dark-yasiya-api.site/download/ytmp3?url={video_url}", timeout=20).json()
-            if res.get("result", {}).get("dl_link"): downloaded_file = download_url_safe(res["result"]["dl_link"])
-        except: pass
-
-    # 3. اختراق عبر سيرفرات Aemt (Y2Mate Bypass)
-    if not downloaded_file:
-        print("3️⃣ جاري التحميل عبر شبكة Aemt...")
-        try:
-            res = requests.get(f"https://aemt.me/youtube?url={video_url}", timeout=20).json()
-            if res.get("result", {}).get("mp3"): downloaded_file = download_url_safe(res["result"]["mp3"])
-        except: pass
-
-    # 4. اختراق عبر سيرفرات Ryzendesu
-    if not downloaded_file:
-        print("4️⃣ جاري التحميل عبر شبكة Ryzendesu...")
+        print("3️⃣ جاري التحميل عبر شبكة Ryzendesu...")
         try:
             res = requests.get(f"https://api.ryzendesu.vip/api/downloader/ytmp3?url={video_url}", timeout=20).json()
             dl = res.get("url") or res.get("data", {}).get("url")
             if dl: downloaded_file = download_url_safe(dl)
         except: pass
 
-    # 5. التخفي عبر Cobalt الرسمي (بالبروتوكول الصارم)
+    # السلاح 4: yt-dlp المتخفي كمتصفح ويب عادي
     if not downloaded_file:
-        print("5️⃣ جاري التحميل عبر Cobalt الرسمي...")
-        try:
-            headers = {"Accept": "application/json", "Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}
-            res = requests.post("https://api.cobalt.tools/", json={"url": video_url, "downloadMode": "audio"}, headers=headers, timeout=20)
-            if res.status_code == 200 and res.json().get("url"):
-                downloaded_file = download_url_safe(res.json().get("url"))
-        except: pass
-
-    # 6. سلاح أخير: yt-dlp المتخفي كمتصفح ويب عادي (MWEB)
-    if not downloaded_file:
-        print("6️⃣ جاري التحميل عبر سلاح yt-dlp المتخفي...")
+        print("4️⃣ جاري التحميل عبر yt-dlp...")
         try:
             ydl_opts_dl = {'format': 'ba/best', 'outtmpl': 'raw_audio_yt.%(ext)s', 'quiet': True, 'extractor_args': {'youtube': ['player_client=mweb,default']}}
             with YoutubeDL(ydl_opts_dl) as ydl_dl: ydl_dl.download([video_url])
@@ -266,10 +266,23 @@ def fetch_and_trim_audio():
             if files and is_valid_audio(files[0]): downloaded_file = files[0]
         except: pass
 
-    if not downloaded_file: 
-        raise Exception("يوتيوب أغلق جميع المنافذ اليوم! (فشلت كل أسلحة الاختراق الـ 6).")
+    # ================= 🛡️ خطة الطوارئ القصوى (Ghost Fallback) =================
+    if not downloaded_file:
+        print("⚠️ فشلت كل محاولات يوتيوب! تفعيل خطة الطوارئ (سحب من سيرفرات بديلة)...")
+        send_telegram_alert("⚠️ *تنبيه حظر يوتيوب شامل!*\nالسيرفر فشل في اختراق يوتيوب اليوم. تم تفعيل خطة الطوارئ (سيتم سحب تلاوة من سيرفر MP3Quran البديل لضمان عدم توقف النشر).")
+        
+        emergency_choice = random.choice(EMERGENCY_LINKS)
+        downloaded_file = download_url_safe(emergency_choice["url"])
+        if downloaded_file:
+            video_title = emergency_choice["title"] + " (تلاوة طوارئ)"
+            vid_id = "EMERGENCY_" + str(random.randint(1000, 9999))
+            selected_reciter = emergency_choice["reciter"]
+            start_time_for_clip = random.uniform(0.0, 180.0) # بداية عشوائية من أول 3 دقائق لتنويع المقاطع
+            print("🎉 تم تأمين تلاوة الطوارئ بنجاح!")
+        else:
+            raise Exception("فشل يوتيوب وفشلت خطة الطوارئ أيضاً! السيرفر مقطوع عن الإنترنت تماماً.")
 
-    print(f"🎉 تم تأمين الملف بنجاح: {downloaded_file}")
+    print(f"🎉 تم تأمين الملف بنجاح للتجميع: {downloaded_file}")
 
     print("🧠 جاري تحليل الصوت بالذكاء الاصطناعي...")
     model = WhisperModel("base", device="cpu", compute_type="int8")
@@ -291,10 +304,10 @@ def fetch_and_trim_audio():
         absolute_start = start_time_for_clip + rel_start
         absolute_end = start_time_for_clip + rel_end
     else:
-        send_telegram_alert(f"⚠️ *تنبيه:* نظام القص الذكي فشل، تم استخدام القص الآلي.\nالسبب: `{gemini_error}`")
+        print("⚠️ فشل Gemini، سيتم الانتقال للقص التلقائي...")
         relative_start = 0.0
         if start_time_for_clip == 0.0:
-            intro_keywords = ["بسم الله", "أعوذ بالله", "الحمد لله", "رب العالمين"]
+            intro_keywords = ["بسم الله", "أعوذ بالله", "الحمد لله", "رب العالمين", "سورة"]
             for segment in segments_list:
                 if any(word in segment.text for word in intro_keywords) and segment.start < 60.0:
                     relative_start = segment.start; break
@@ -309,7 +322,10 @@ def fetch_and_trim_audio():
         absolute_start = start_time_for_clip + relative_start
         absolute_end = start_time_for_clip + relative_end
 
-    history['youtube_clips'][vid_id] = absolute_end
+    # تحديث الذاكرة فقط إذا لم يكن مقطع طوارئ
+    if not vid_id.startswith("EMERGENCY_"):
+        history['youtube_clips'][vid_id] = absolute_end
+        
     final_audio_duration = absolute_end - absolute_start
     trimmed_audio = full_audio_clip.subclip(absolute_start, absolute_end)
     final_audio = trimmed_audio.audio_fadein(1.0).audio_fadeout(1.5)
@@ -413,4 +429,3 @@ if __name__ == "__main__":
             else:
                 send_telegram_alert(f"🚨 فشل نهائي!\nالسبب: `{str(e)}`")
                 sys.exit(1)
-
