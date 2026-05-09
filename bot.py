@@ -16,7 +16,6 @@ from moviepy.video.fx.all import crop, resize
 # === استدعاءات إنستجرام ===
 try:
     from instagrapi import Client
-    from instagrapi.exceptions import ChallengeRequired
 except ImportError:
     raise Exception("❌ مكتبة instagrapi غير مثبتة.")
 
@@ -34,6 +33,11 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 RAPID_API_KEY = os.environ.get("RAPID_API_KEY")
 HISTORY_FILE = "history.json"
 SESSION_FILE = "session.json"
+
+# ⚠️ ضع بيانات الأداة الثانية (Spicy-Laika) هنا ⚠️
+# انسخ الرابط (URL) واسم المضيف (Host) من صفحة الأداة في RapidAPI
+RAPID_TOOL_URL = "https://youtube-mp3-audio-video-downloader.p.rapidapi.com/language_list/DXVHmGoCTco?response_mode=default" 
+RAPID_TOOL_HOST = "yout ube-mp3-audio-video-downloader.p.ra pidapi.com"
 
 # ================= نظام إشعارات تليجرام =================
 def send_telegram_alert(message):
@@ -116,12 +120,10 @@ CHANNELS = [
     {"url": "https://www.youtube.com/@9li9/videos", "name": "عبدالرحمن مسعد"}
 ]
 
-# تم إرجاع الروابط الصحيحة (server16) لضمان عمل خطة الطوارئ بنسبة 100%
 EMERGENCY_LINKS = [
     {"url": "https://server16.mp3quran.net/a_mosaad/018.mp3", "title": "سورة الكهف", "reciter": "عبدالرحمن مسعد"},
     {"url": "https://server16.mp3quran.net/a_mosaad/067.mp3", "title": "سورة الملك", "reciter": "عبدالرحمن مسعد"},
-    {"url": "https://server16.mp3quran.net/a_mosaad/055.mp3", "title": "سورة الرحمن", "reciter": "عبدالرحمن مسعد"},
-    {"url": "https://server16.mp3quran.net/a_mosaad/056.mp3", "title": "سورة الواقعة", "reciter": "عبدالرحمن مسعد"}
+    {"url": "https://server16.mp3quran.net/a_mosaad/055.mp3", "title": "سورة الرحمن", "reciter": "عبدالرحمن مسعد"}
 ]
 
 def load_history():
@@ -142,19 +144,10 @@ def setup_cookies():
 
 # ================= 🛡️ دبابة التحميل الصارمة =================
 def download_url_safe(url, ext="mp3"):
-    print(f"🔗 جاري محاولة سحب الرابط: {url[:50]}...")
+    print(f"🔗 جاري محاولة سحب الرابط المباشر...")
     if url.startswith("//"): url = "https:" + url 
     fname = f"raw_audio_{random.randint(100,999)}.{ext}"
 
-    # الطبقة 1: استخدام أداة curl (لاحترافيتها في تخطي 404 وتتبع الروابط)
-    try:
-        os.system(f'curl -s -L -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" -o "{fname}" "{url}"')
-        if is_valid_audio(fname): 
-            print("✅ تم سحب الملف المباشر بنجاح!")
-            return fname
-    except: pass
-
-    # الطبقة 2: requests الطبيعية
     try:
         headers = {"User-Agent": "Mozilla/5.0"}
         r = requests.get(url, headers=headers, timeout=60, stream=True, allow_redirects=True)
@@ -164,11 +157,16 @@ def download_url_safe(url, ext="mp3"):
             if is_valid_audio(fname): return fname
     except: pass
 
+    try:
+        os.system(f'curl -s -L -o "{fname}" "{url}"')
+        if is_valid_audio(fname): return fname
+    except: pass
+
     try: os.remove(fname)
     except: pass
     return None
 
-# ================= بروتوكول التشغيل =================
+# ================= بروتوكول التشغيل الرئيسي =================
 def fetch_and_trim_audio():
     history = load_history()
     cookie_file = setup_cookies()
@@ -212,39 +210,38 @@ def fetch_and_trim_audio():
 
     downloaded_file = None
 
-    # ================= 🚀 RapidAPI (التضبيط الذهبي) =================
-    if RAPID_API_KEY and not downloaded_file:
-        print("1️⃣ جاري التحميل عبر RapidAPI...")
-        url = "https://youtube-mp36.p.rapidapi.com/dl"
-        headers = {"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": "youtube-mp36.p.rapidapi.com"}
+    # ================= 🚀 RapidAPI (الأداة الجديدة) =================
+    if RAPID_API_KEY and RAPID_TOOL_URL != "ضع_الرابط_هنا_مثل_https://..." and not downloaded_file:
+        print("1️⃣ جاري التحميل عبر أداة RapidAPI الجديدة (Spicy-Laika)...")
+        headers = {
+            "x-rapidapi-key": RAPID_API_KEY,
+            "x-rapidapi-host": RAPID_TOOL_HOST
+        }
         
-        for i in range(12): # زيادة عدد المحاولات لتجنب التسرع
-            try:
-                res = requests.get(url, headers=headers, params={"id": vid_id}, timeout=30)
-                if res.status_code == 200:
-                    data = res.json()
-                    status = data.get("status")
-                    if status == "ok" and data.get("link"):
-                        print("🎉 تم تحويل المقطع بنجاح في سيرفراتهم!")
-                        # ⏳ التكتيك الجديد: انتظار 4 ثواني لضمان رفع الملف بالكامل لتجنب 404
-                        print("⏳ ننتظر 4 ثواني لضمان توفر الملف في سيرفراتهم (لتجنب خطأ 404)...")
-                        time.sleep(4) 
-                        downloaded_file = download_url_safe(data["link"])
-                        break
-                    elif status == "processing":
-                        print(f"⏳ المقطع قيد المعالجة (محاولة {i+1}/12)...")
-                        time.sleep(4)
-                    elif status == "fail":
-                        print(f"❌ فشل التحويل من السيرفر.")
-                        break
-                else: break
-            except Exception as e: print(f"❌ خطأ أثناء الاتصال: {e}"); break
+        # بعض الأدوات تقبل url وبعضها id، سنرسل الاثنين لضمان التوافق
+        params = {"url": video_url, "id": vid_id, "videoId": vid_id}
+        
+        try:
+            res = requests.get(RAPID_TOOL_URL, headers=headers, params=params, timeout=30)
+            if res.status_code == 200:
+                data = res.json()
+                # بحث شامل عن أي رابط استرجاع
+                dl_link = data.get("url") or data.get("downloadUrl") or data.get("link") or (data.get("data") and data["data"].get("url"))
+                
+                if dl_link:
+                    print("🎉 تم سحب الرابط المباشر من الأداة الجديدة، جاري التحميل...")
+                    downloaded_file = download_url_safe(dl_link)
+                else:
+                    print(f"❌ الأداة ردت بنجاح لكن بدون رابط مباشر: {str(data)[:100]}")
+            else:
+                print(f"❌ الأداة رفضت الطلب. كود الخطأ: {res.status_code}")
+        except Exception as e:
+            print(f"❌ خطأ أثناء الاتصال بالأداة: {e}")
 
     # ================= 🎥 يوتيوب كبديل محلي =================
     if not downloaded_file:
         print("2️⃣ جاري التحميل محلياً عبر (yt-dlp)...")
         try:
-            # تم إزالة قيد 'bestaudio/best' للقبول بأي جودة صوتية متاحة لمنع خطأ Requested format
             ydl_opts = {'format': 'ba', 'outtmpl': 'raw_audio_yt.%(ext)s', 'quiet': True, 'extractor_args': {'youtube': ['player_client=android']}}
             if cookie_file: ydl_opts['cookiefile'] = cookie_file
             with YoutubeDL(ydl_opts) as ydl_dl: ydl_dl.download([video_url])
@@ -388,7 +385,7 @@ if __name__ == "__main__":
             break 
         except Exception as e:
             if attempt < max_retries:
-                send_telegram_alert(f"⚠️ فشل محاولة {attempt}. جاري إعادة المحاولة...\nالسبب: `{str(e)}`")
+                send_telegram_alert(f"⚠️ فش محاولة {attempt}. جاري إعادة المحاولة...\nالسبب: `{str(e)}`")
                 time.sleep(10)
             else:
                 send_telegram_alert(f"🚨 فشل نهائي بعد 3 محاولات!\nالسبب: `{str(e)}`")
