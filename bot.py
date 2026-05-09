@@ -116,10 +116,11 @@ CHANNELS = [
     {"url": "https://www.youtube.com/@9li9/videos", "name": "عبدالرحمن مسعد"}
 ]
 
+# تم تصحيح الروابط لضمان عدم ظهور 404 أو العفاسي!
 EMERGENCY_LINKS = [
-    {"url": "https://server16.mp3quran.net/a_mosaad/018.mp3", "title": "سورة الكهف", "reciter": "عبدالرحمن مسعد"},
-    {"url": "https://server16.mp3quran.net/a_mosaad/067.mp3", "title": "سورة الملك", "reciter": "عبدالرحمن مسعد"},
-    {"url": "https://server16.mp3quran.net/a_mosaad/055.mp3", "title": "سورة الرحمن", "reciter": "عبدالرحمن مسعد"}
+    {"url": "https://server14.mp3quran.net/mosaad/018.mp3", "title": "سورة الكهف", "reciter": "عبدالرحمن مسعد"},
+    {"url": "https://server14.mp3quran.net/mosaad/067.mp3", "title": "سورة الملك", "reciter": "عبدالرحمن مسعد"},
+    {"url": "https://server14.mp3quran.net/mosaad/055.mp3", "title": "سورة الرحمن", "reciter": "عبدالرحمن مسعد"}
 ]
 
 def load_history():
@@ -138,44 +139,49 @@ def setup_cookies():
         return "cookies.txt"
     return None
 
-# ================= 🛡️ دبابة التحميل الصارمة (بثلاث طبقات حماية) =================
+# ================= 🛡️ دبابة التحميل الصارمة (بالتضبيط الجديد) =================
 def download_url_safe(url, ext="mp3"):
     print(f"🔗 جاري محاولة سحب الملف المباشر...")
-    if url.startswith("//"): url = "https:" + url # تصليح الروابط الناقصة
+    if url.startswith("//"): url = "https:" + url 
     fname = f"raw_audio_{random.randint(100,999)}.{ext}"
 
-    # الطبقة 1: مكتبة requests الطبيعية
+    # الطبقة 1: التخفي الذكي والمطابق للمعايير
     try:
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "Referer": "https://www.youtube.com/",
+            "Accept": "audio/webm,audio/ogg,audio/wav,audio/*;q=0.9,application/ogg;q=0.7,video/*;q=0.6,*/*;q=0.5"
+        }
         r = requests.get(url, headers=headers, timeout=60, stream=True, allow_redirects=True)
         print(f"📡 استجابة السيرفر الأساسية: {r.status_code}")
+        
         if r.status_code in [200, 206]:
             with open(fname, "wb") as f:
-                for chunk in r.iter_content(8192): f.write(chunk)
-            if is_valid_audio(fname): return fname
-    except Exception as e: print(f"❌ خطأ في الطبقة 1: {e}")
+                for chunk in r.iter_content(8192): 
+                    if chunk: f.write(chunk)
+            if is_valid_audio(fname): 
+                print("✅ تم سحب الملف بنجاح وبجودة عالية!")
+                return fname
+            else:
+                os.remove(fname)
+    except Exception as e: 
+        print(f"❌ خطأ في السحب المباشر: {e}")
 
-    # الطبقة 2: أداة wget (كاسحة الألغام النظامية)
-    print("🔄 جاري تفعيل أداة wget النظامية لسحب الملف بالقوة...")
-    try:
-        os.system(f'wget -q -O {fname} "{url}"')
-        if is_valid_audio(fname): 
-            print("✅ نجح السحب عبر wget!")
-            return fname
-    except: pass
-
-    # الطبقة 3: محرك yt-dlp 
+    # الطبقة 2: محرك yt-dlp المعكوس في حال رفضت الطبقة الأولى
     print("🔄 جاري محاولة السحب العكسي عبر yt-dlp...")
     try:
-        os.system(f'yt-dlp --force-ipv4 -o "{fname}" "{url}"')
-        if is_valid_audio(fname): return fname
+        # أزلنا صيغة ios لضمان عدم ظهور رسالة Requested format
+        os.system(f'yt-dlp --force-ipv4 --no-check-certificate -o "{fname}" "{url}"')
+        if is_valid_audio(fname): 
+            print("✅ تم سحب الملف عبر المحرك العكسي!")
+            return fname
     except: pass
 
     try: os.remove(fname)
     except: pass
     return None
 
-# ================= بروتوكول التشغيل =================
+# ================= بروتوكول التشغيل الرئيسي =================
 def fetch_and_trim_audio():
     history = load_history()
     cookie_file = setup_cookies()
@@ -219,7 +225,7 @@ def fetch_and_trim_audio():
 
     downloaded_file = None
 
-    # ================= 🚀 RapidAPI (نظام الصبر المطور) =================
+    # ================= 🚀 RapidAPI (المفضلة لديك) =================
     if RAPID_API_KEY and not downloaded_file:
         print("1️⃣ جاري التحميل عبر RapidAPI...")
         url = "https://youtube-mp36.p.rapidapi.com/dl"
@@ -233,7 +239,7 @@ def fetch_and_trim_audio():
                     status = data.get("status")
                     if status == "ok" and data.get("link"):
                         print("🎉 تم تحويل المقطع بنجاح في سيرفراتهم!")
-                        # الانتظار التكتيكي (2 ثانية) لضمان جاهزية الملف على السيرفر
+                        # انتظار تكتيكي لثانيتين لضمان استقرار الرابط
                         time.sleep(2)
                         downloaded_file = download_url_safe(data["link"])
                         break
@@ -250,7 +256,7 @@ def fetch_and_trim_audio():
     if not downloaded_file:
         print("2️⃣ جاري التحميل محلياً عبر (yt-dlp)...")
         try:
-            # تم إزالة القيود الصارمة عن الصيغة لحل مشكلة 404 المحلية
+            # تم حذف قيد ios لحل مشكلة 404
             ydl_opts = {'format': 'bestaudio/best', 'outtmpl': 'raw_audio_yt.%(ext)s', 'quiet': True}
             if cookie_file: ydl_opts['cookiefile'] = cookie_file
             with YoutubeDL(ydl_opts) as ydl_dl: ydl_dl.download([video_url])
