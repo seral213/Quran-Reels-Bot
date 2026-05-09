@@ -8,11 +8,15 @@ import sys
 import re
 import glob
 from datetime import datetime
-from yt_dlp import YoutubeDL
 from faster_whisper import WhisperModel
 from moviepy.editor import VideoFileClip, AudioFileClip, concatenate_videoclips, TextClip, CompositeVideoClip, ColorClip
 
-# === استدعاءات إنستجرام ===
+# === استدعاءات يوتيوب وإنستجرام ===
+try:
+    from yt_dlp import YoutubeDL
+except ImportError:
+    pass
+
 try:
     from instagrapi import Client
     from instagrapi.exceptions import ChallengeRequired
@@ -45,7 +49,7 @@ def send_telegram_alert(message):
 def is_valid_audio(filepath):
     try:
         if not os.path.exists(filepath): return False
-        if os.path.getsize(filepath) < 50000: return False 
+        if os.path.getsize(filepath) < 50000: return False # الملف أصغر من 50 كيلو = وهمي
         clip = AudioFileClip(filepath)
         dur = clip.duration
         clip.close()
@@ -84,16 +88,12 @@ def get_smart_timestamps(transcript_segments):
     }
 
     try:
-        print("🔄 جاري الاتصال المباشر بعقل Gemini...")
-        response = requests.post(api_url, headers=headers, json=payload, timeout=30)
-        
+        response = requests.post(api_url, headers=headers, json=payload, timeout=15)
         if response.status_code == 200:
             resp_data = response.json()
             text_response = resp_data['candidates'][0]['content']['parts'][0]['text']
-            
             match_start = re.search(r'START:\s*([0-9.]+)', text_response)
             match_end = re.search(r'END:\s*([0-9.]+)', text_response)
-            
             if match_start and match_end:
                 start = float(match_start.group(1))
                 end = float(match_end.group(1)) + 1.5 
@@ -101,7 +101,7 @@ def get_smart_timestamps(transcript_segments):
             else:
                 return None, None, "لم يتمكن Gemini من استخراج الأرقام."
         else:
-            return None, None, f"خطأ في الاتصال المباشر: {response.status_code}"
+            return None, None, f"خطأ في الاتصال: {response.status_code}"
     except Exception as e:
         return None, None, str(e)
 
@@ -113,12 +113,13 @@ def fix_arabic(text):
     reshaped_text = reshaper.reshape(padded_text)
     return get_display(reshaped_text)
 
-# ================= قنوات القراء وروابط الطوارئ =================
+# ================= قنوات القراء =================
 CHANNELS = [
     {"url": "https://www.youtube.com/@abdullahshaab1/videos", "name": "عبدالله شعبان"},
     {"url": "https://www.youtube.com/@9li9/videos", "name": "عبدالرحمن مسعد"}
 ]
 
+# === روابط الطوارئ المطلقة ===
 EMERGENCY_LINKS = [
     {"url": "https://server16.mp3quran.net/a_mosaad/018.mp3", "title": "سورة الكهف", "reciter": "عبدالرحمن مسعد"},
     {"url": "https://server16.mp3quran.net/a_mosaad/067.mp3", "title": "سورة الملك", "reciter": "عبدالرحمن مسعد"},
@@ -139,11 +140,16 @@ def load_history():
 def save_history(history):
     with open(HISTORY_FILE, "w") as f: json.dump(history, f)
 
-# ================= دالة التحميل الآمن للملفات =================
+def setup_cookies():
+    if YOUTUBE_COOKIES and len(YOUTUBE_COOKIES) > 10:
+        with open("cookies.txt", "w") as f: f.write(YOUTUBE_COOKIES)
+        return "cookies.txt"
+    return None
+
 def download_url_safe(url, ext="mp3"):
     try:
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-        r = requests.get(url, headers=headers, timeout=120, stream=True)
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+        r = requests.get(url, headers=headers, timeout=(5, 30), stream=True) # 5 ثواني للاتصال فقط
         if r.status_code in [200, 206]:
             fname = f"raw_audio_{random.randint(100,999)}.{ext}"
             with open(fname, "wb") as f:
@@ -154,81 +160,106 @@ def download_url_safe(url, ext="mp3"):
     except: pass
     return None
 
-# ================= 🌍 فكرتك: التحميل من مواقع خارجية =================
-def download_from_external_websites(video_url):
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        "Accept": "*/*"
-    }
+# ================= 🚀 سرب الـ 50 موقع (بدون انتظار) =================
+def massive_swarm_download(video_url, vid_id):
+    # 1. 15 سيرفر Cobalt
+    cobalt_nodes = [
+        "https://api.cobalt.tools", "https://co.wuk.sh", "https://cobalt.kwiatekm.lol",
+        "https://api.cobalt.buss.lol", "https://cobalt.qewl.eu", "https://api.cobalt.birdflop.com",
+        "https://cobalt.wuk.sh", "https://cobalt.tools.run", "https://cobalt.starnodes.dev",
+        "https://api.cobalt.zodya.net", "https://cobalt.starnodes.net", "https://cobalt.mywire.org",
+        "https://cobalt.r-n-d.network", "https://api.cobalt.seeyoufs.com", "https://cobalt.cachyos.org"
+    ]
     
-    # 1. موقع YT1s الشهير (عبر إرسال طلب AJAX خلفي كأننا متصفح)
-    print("1️⃣ جاري السحب من موقع YT1s الخارجي...")
-    try:
-        r1 = requests.post("https://yt1s.com/api/ajaxSearch/index", data={"q": video_url, "vt": "mp3"}, headers=headers, timeout=15).json()
-        if 'vid' in r1:
-            vid = r1['vid']
-            k = None
-            # البحث عن مفتاح التحميل
-            for quality in r1.get('links', {}).get('mp3', {}):
-                k = r1['links']['mp3'][quality]['k']
-                break
-            if k:
-                r2 = requests.post("https://yt1s.com/api/ajaxConvert/convert", data={"vid": vid, "k": k}, headers=headers, timeout=15).json()
-                if r2.get('dlink'):
-                    dl = download_url_safe(r2['dlink'])
+    # 2. 20 سيرفر Invidious
+    invidious_nodes = [
+        "https://vid.puffyan.us", "https://invidious.nerdvpn.de", "https://inv.tux.pizza",
+        "https://invidious.flokinet.to", "https://invidious.privacyredirect.com", "https://yt.artemislena.eu",
+        "https://invidious.projectsegfau.lt", "https://inv.riverside.rocks", "https://yewtu.be",
+        "https://invidious.snopyta.org", "https://invidious.weblibre.org", "https://invidious.esmailelbob.xyz",
+        "https://invidious.lunar.icu", "https://invidious.mutahar.rocks", "https://inv.vern.cc",
+        "https://invidious.slipfox.xyz", "https://invidious.drgns.space", "https://invidious.namazso.eu",
+        "https://inv.us.projectsegfau.lt", "https://invidious.sethforprivacy.com"
+    ]
+    
+    # 3. 10 سيرفرات Piped
+    piped_nodes = [
+        "https://pipedapi.kavin.rocks", "https://pipedapi.tokhmi.xyz", "https://pipedapi.smnz.de",
+        "https://piped-api.garudalinux.org", "https://api.piped.yt", "https://pipedapi.adminforge.de",
+        "https://pipedapi.lunar.icu", "https://pipedapi.astartes.nl", "https://pipedapi.in.projectsegfau.lt",
+        "https://pipedapi.moomoo.me"
+    ]
+    
+    # 4. واجهات المطورين (APIs)
+    external_apis = [
+        f"https://api.siputzx.my.id/api/d/ytmp3?url={video_url}",
+        f"https://bk9.fun/download/ytmp3?q={video_url}",
+        f"https://api.ryzendesu.vip/api/downloader/ytmp3?url={video_url}",
+        f"https://aemt.me/youtube?url={video_url}",
+        f"https://dark-yasiya-api.site/download/ytmp3?url={video_url}"
+    ]
+
+    random.shuffle(cobalt_nodes)
+    random.shuffle(invidious_nodes)
+    random.shuffle(piped_nodes)
+    random.shuffle(external_apis)
+
+    print(f"\n🚀 إطلاق سرب الهجوم السريع على {len(cobalt_nodes) + len(invidious_nodes) + len(piped_nodes) + len(external_apis)} موقع...")
+
+    # هجوم واجهات المطورين
+    for api_url in external_apis:
+        try:
+            r = requests.get(api_url, timeout=7).json()
+            dl_link = r.get("url") or r.get("data", {}).get("url") or r.get("BK9", {}).get("url") or r.get("result", {}).get("mp3") or r.get("data", {}).get("dl")
+            if dl_link:
+                dl = download_url_safe(dl_link)
+                if dl: return dl
+        except: continue
+
+    # هجوم Cobalt
+    for node in cobalt_nodes:
+        try:
+            headers = {"Accept": "application/json", "Content-Type": "application/json"}
+            res = requests.post(f"{node}/", json={"url": video_url, "downloadMode": "audio"}, headers=headers, timeout=7)
+            if res.status_code == 200 and res.json().get("url"):
+                dl = download_url_safe(res.json().get("url"))
+                if dl: return dl
+        except: continue
+
+    # هجوم Invidious
+    for node in invidious_nodes:
+        try:
+            res = requests.get(f"{node}/api/v1/videos/{vid_id}", timeout=7).json()
+            formats = res.get("adaptiveFormats", [])
+            for fmt in formats:
+                if 'audio' in fmt.get('type', ''):
+                    dl = download_url_safe(fmt['url'], ext="m4a")
                     if dl: return dl
-    except Exception as e: print(f"فشل YT1s: {e}")
+        except: continue
 
-    # 2. موقع OceanSaver (محرك التحميل لعدة مواقع)
-    print("2️⃣ جاري السحب من منصة OceanSaver...")
-    try:
-        res = requests.get(f"https://p.oceansaver.in/ajax/download.php?format=mp3&url={video_url}", headers=headers, timeout=15).json()
-        job_id = res.get("id")
-        if job_id:
-            for _ in range(20):
-                time.sleep(3)
-                status = requests.get(f"https://p.oceansaver.in/ajax/progress.php?id={job_id}", headers=headers, timeout=10).json()
-                if status.get("text") == "Finished":
-                    dl = download_url_safe(status.get("download_url"))
-                    if dl: return dl
-    except Exception as e: print(f"فشل OceanSaver: {e}")
-
-    # 3. واجهة Ryzendesu
-    print("3️⃣ جاري السحب من موقع خارجي (Ryzendesu)...")
-    try:
-        res = requests.get(f"https://api.ryzendesu.vip/api/downloader/ytmp3?url={video_url}", headers=headers, timeout=15).json()
-        dl_link = res.get("url") or res.get("data", {}).get("url")
-        if dl_link:
-            dl = download_url_safe(dl_link)
-            if dl: return dl
-    except Exception as e: print(f"فشل Ryzendesu: {e}")
-
-    # 4. موقع Cobalt (مع حقن IP منزلي مزيف لخداع الكلاودفلير)
-    print("4️⃣ جاري السحب من Cobalt (بهوية مزيفة)...")
-    try:
-        fake_ip = f"{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}"
-        co_headers = {
-            "Accept": "application/json", "Content-Type": "application/json", 
-            "User-Agent": headers["User-Agent"], "X-Forwarded-For": fake_ip
-        }
-        res = requests.post("https://api.cobalt.tools/", json={"url": video_url, "downloadMode": "audio"}, headers=co_headers, timeout=15)
-        if res.status_code == 200 and res.json().get("url"):
-            dl = download_url_safe(res.json().get("url"))
-            if dl: return dl
-    except Exception as e: print(f"فشل Cobalt: {e}")
+    # هجوم Piped
+    for node in piped_nodes:
+        try:
+            res = requests.get(f"{node}/streams/{vid_id}", timeout=7).json()
+            audio_streams = res.get("audioStreams", [])
+            if audio_streams:
+                dl = download_url_safe(audio_streams[-1]['url'], ext="m4a")
+                if dl: return dl
+        except: continue
 
     return None
 
-# ================= بروتوكول السرب الشامل =================
+# ================= بروتوكول التشغيل =================
 def fetch_and_trim_audio():
     history = load_history()
+    cookie_file = setup_cookies()
     ydl_opts_flat = {'quiet': True, 'extract_flat': True}
+    if cookie_file: ydl_opts_flat['cookiefile'] = cookie_file
     
     forbidden_keywords = ['أذكار', 'اذكار', 'الصباح', 'المساء', 'النوم', 'الاستيقاظ', 'رقية', 'شرعية', 'دعاء', 'أدعية', 'بث مباشر']
     is_thursday = datetime.now().strftime("%A") == "Thursday"
     available_videos_pool = []
     
-    print("جاري فحص مخزون الفيديوهات في القنوات...")
     with YoutubeDL(ydl_opts_flat) as ydl:
         for channel in CHANNELS:
             try:
@@ -248,7 +279,7 @@ def fetch_and_trim_audio():
                     saved_time = history['youtube_clips'].get(vid_id, 0.0)
                     if saved_time < (duration_sec - 60): 
                         available_videos_pool.append((entry, channel['name'], saved_time))
-            except Exception as e: print(f"خطأ قناة {channel['name']}: {e}")
+            except: pass
 
     if not available_videos_pool:
         raise Exception("❌ انتهت الفيديوهات الصالحة في القنوات!")
@@ -263,18 +294,17 @@ def fetch_and_trim_audio():
     video_url = f"https://www.youtube.com/watch?v={vid_id}"
     print(f"تم اختيار: {video_title}\nيبدأ القص من الدقيقة: {start_time_for_clip/60:.2f}")
     
-    # تنظيف الملفات السابقة
     for f in glob.glob("raw_audio*") + ["temp_analysis.mp3", "final_audio.mp3"]:
         try: os.remove(f)
         except: pass
 
-    # تنفيذ فكرتك العبقرية
-    downloaded_file = download_from_external_websites(video_url)
+    # تنفيذ سرب الـ 50 موقع
+    downloaded_file = massive_swarm_download(video_url, vid_id)
 
-    # 🛡️ خطة الطوارئ القصوى (في حال انهار الإنترنت بالكامل)
+    # الطوارئ إذا فشلت كل الـ 50 موقع
     if not downloaded_file:
-        print("⚠️ فشلت المواقع الخارجية! تفعيل خطة الطوارئ (تلاوة من سيرفر القرآن البديل)...")
-        send_telegram_alert("⚠️ *تنبيه حظر يوتيوب شامل!*\nيوتيوب حظرنا وحظر المواقع الخارجية، تم تفعيل خطة الطوارئ بسحب تلاوة من سيرفر MP3Quran البديل لضمان عدم توقف صفحتك.")
+        print("⚠️ فشل السرب بالكامل! تفعيل خطة الطوارئ فوراً...")
+        send_telegram_alert("⚠️ *تنبيه حظر يوتيوب شامل!*\nالسرب المكون من 50 موقعاً فشل في السحب. تم تفعيل خطة الطوارئ البديلة.")
         
         emergency_choice = random.choice(EMERGENCY_LINKS)
         downloaded_file = download_url_safe(emergency_choice["url"])
@@ -284,9 +314,7 @@ def fetch_and_trim_audio():
             selected_reciter = emergency_choice["reciter"]
             start_time_for_clip = random.uniform(0.0, 180.0)
         else:
-            raise Exception("فشل يوتيوب والمواقع الخارجية وفشلت خطة الطوارئ!")
-
-    print(f"🎉 تم تأمين الملف بنجاح: {downloaded_file}")
+            raise Exception("فشل السرب وفشلت خطة الطوارئ!")
 
     print("🧠 جاري تحليل الصوت بالذكاء الاصطناعي...")
     model = WhisperModel("base", device="cpu", compute_type="int8")
@@ -307,7 +335,6 @@ def fetch_and_trim_audio():
         absolute_start = start_time_for_clip + rel_start
         absolute_end = start_time_for_clip + rel_end
     else:
-        print("⚠️ فشل Gemini، سيتم الانتقال للقص التلقائي...")
         relative_start = 0.0
         if start_time_for_clip == 0.0:
             intro_keywords = ["بسم الله", "أعوذ بالله", "الحمد لله", "رب العالمين", "سورة"]
@@ -411,7 +438,7 @@ def publish_to_instagram(reciter_name, title):
     except Exception as e:
         raise Exception(f"❌ فشل النشر: {str(e)}")
 
-# ================= التشغيل الرئيسي =================
+# ================= التشغيل الرئيسي (بدون انتظار) =================
 if __name__ == "__main__":
     max_retries = 3 
     for attempt in range(1, max_retries + 1):
@@ -426,8 +453,8 @@ if __name__ == "__main__":
             break 
         except Exception as e:
             if attempt < max_retries:
-                send_telegram_alert(f"⚠️ فشل محاولة {attempt}. انتظار 3 دقائق...\nالسبب: `{str(e)}`")
-                time.sleep(180)
+                # 🔴 تم حذف الانتظار (time.sleep) نهائياً 🔴
+                send_telegram_alert(f"⚠️ فشل محاولة {attempt}. جاري إعادة المحاولة فوراً وبدون انتظار...\nالسبب: `{str(e)}`")
             else:
-                send_telegram_alert(f"🚨 فشل نهائي!\nالسبب: `{str(e)}`")
+                send_telegram_alert(f"🚨 فشل نهائي بعد 3 محاولات!\nالسبب: `{str(e)}`")
                 sys.exit(1)
