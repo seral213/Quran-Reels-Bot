@@ -53,7 +53,7 @@ def is_valid_audio(filepath):
     except:
         return False
 
-# ================= 🧠 الحل العبقري 1: دالة Gemini عبر الاتصال المباشر (REST API) =================
+# ================= 🧠 القص الذكي عبر الاتصال المباشر (REST API) =================
 def get_smart_timestamps(transcript_segments):
     if not GEMINI_API_KEY:
         return None, None, "مفتاح GEMINI_API_KEY مفقود."
@@ -76,7 +76,6 @@ def get_smart_timestamps(transcript_segments):
     END: رقم
     """
     
-    # استخدام الرابط المباشر بدلاً من المكتبة لتجاوز أخطاء 404
     api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
     headers = {'Content-Type': 'application/json'}
     payload = {
@@ -203,15 +202,12 @@ def fetch_and_trim_audio():
         try: os.remove(f)
         except: pass
     
-    # ================= 🏴‍☠️ الحل العبقري 2: تخطي الحظر =================
-
-    # المحاولة 1: التخفي العنيف كجهاز آيفون (Mobile Spoofing)
+    # المحاولة 1: التخفي المحلي (بدون إجبار صيغة m4a لتجنب خطأ الفورمات)
     ydl_opts_dl = {
-        'format': 'm4a/bestaudio/best',
+        'format': 'bestaudio/best', # تم التعديل لقبول أي صيغة صوت
         'outtmpl': 'raw_audio.%(ext)s', 
         'quiet': True,
-        'extractor_args': {'youtube': ['player_client=ios,android']}, # تخفي عنيف كجوال
-        'http_headers': {'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15'}
+        'extractor_args': {'youtube': ['player_client=android']}, # العودة للأندرويد لتجنب ألغاز JS
     }
     if cookie_file: ydl_opts_dl['cookiefile'] = cookie_file
     
@@ -222,14 +218,14 @@ def fetch_and_trim_audio():
         downloaded_files = glob.glob("raw_audio.*")
         if downloaded_files and is_valid_audio(downloaded_files[0]):
             downloaded_file = downloaded_files[0]
-            print(f"🎉 تم التحميل محلياً بنجاح (وضع الآيفون)!")
+            print(f"🎉 تم التحميل محلياً بنجاح!")
         else:
             if downloaded_files: os.remove(downloaded_files[0])
     except Exception as e:
         error_msg = str(e).lower()
-        print(f"❌ فشل وضع الآيفون: {error_msg}")
+        print(f"❌ فشل المحلي: {error_msg}")
 
-    # المحاولة 2: شبكة العناكب (Invidious API) - مقاومة للحظر
+    # المحاولة 2: شبكة العناكب (Invidious API)
     if not downloaded_file:
         print("2️⃣ جاري محاولة التحميل عبر شبكة Invidious السرية...")
         invidious_instances = [
@@ -241,32 +237,46 @@ def fetch_and_trim_audio():
         
         for instance in invidious_instances:
             try:
-                # سحب بيانات الفيديو خام
                 res = requests.get(f"{instance}/api/v1/videos/{vid_id}", timeout=15).json()
                 formats = res.get("adaptiveFormats", [])
                 
-                # البحث عن صيغة m4a للصوت
                 audio_url = None
                 for fmt in formats:
-                    if 'audio/mp4' in fmt.get('type', ''):
+                    if 'audio' in fmt.get('type', ''):
                         audio_url = fmt.get('url')
                         break
                 
                 if audio_url:
                     audio_data = requests.get(audio_url, timeout=300).content
-                    with open("raw_audio.m4a", "wb") as f: f.write(audio_data)
+                    with open("raw_audio.webm", "wb") as f: f.write(audio_data)
                     
-                    if is_valid_audio("raw_audio.m4a"):
-                        downloaded_file = "raw_audio.m4a"
+                    if is_valid_audio("raw_audio.webm"):
+                        downloaded_file = "raw_audio.webm"
                         print(f"🎉 تم التحميل بنجاح عبر Invidious ({instance})!")
                         break
                     else:
-                        os.remove("raw_audio.m4a")
+                        os.remove("raw_audio.webm")
             except: continue
 
-    # المحاولة 3: شبكة Piped
+    # المحاولة 3: Cobalt הסحابي المحدث (إصدار V7 الجديد)
     if not downloaded_file:
-        print("3️⃣ جاري محاولة التحميل عبر شبكة Piped...")
+        print("3️⃣ جاري تجربة Cobalt (الإصدار الجديد)...")
+        try:
+            headers = {"Accept": "application/json", "Content-Type": "application/json"}
+            payload = {"url": video_url, "downloadMode": "audio", "audioFormat": "mp3"} # الهيكل الجديد
+            res = requests.post("https://api.cobalt.tools/", json=payload, headers=headers, timeout=20)
+            if res.status_code == 200 and res.json().get('url'):
+                audio_data = requests.get(res.json().get('url'), timeout=300).content
+                with open("raw_audio.mp3", "wb") as f: f.write(audio_data)
+                if is_valid_audio("raw_audio.mp3"): 
+                    downloaded_file = "raw_audio.mp3"
+                    print("🎉 تم التحميل بنجاح عبر Cobalt!")
+                else: os.remove("raw_audio.mp3")
+        except: pass
+
+    # المحاولة 4: شبكة Piped
+    if not downloaded_file:
+        print("4️⃣ جاري محاولة التحميل عبر شبكة Piped...")
         piped_instances = ["https://pipedapi.kavin.rocks", "https://pipedapi.tokhmi.xyz"]
         for instance in piped_instances:
             try:
@@ -275,14 +285,16 @@ def fetch_and_trim_audio():
                 if audio_streams:
                     best_stream = audio_streams[-1]['url']
                     audio_data = requests.get(best_stream, timeout=300).content
-                    with open("raw_audio.m4a", "wb") as f: f.write(audio_data)
-                    if is_valid_audio("raw_audio.m4a"):
-                        downloaded_file = "raw_audio.m4a"; break
-                    else: os.remove("raw_audio.m4a")
+                    with open("raw_audio.webm", "wb") as f: f.write(audio_data)
+                    if is_valid_audio("raw_audio.webm"):
+                        downloaded_file = "raw_audio.webm"
+                        print("🎉 تم التحميل بنجاح عبر Piped!")
+                        break
+                    else: os.remove("raw_audio.webm")
             except: continue
 
     if not downloaded_file: 
-        raise Exception("جميع أسلحة الاختراق (المحلي، Invidious، Piped) فشلت! يوتيوب مغلق تماماً اليوم.")
+        raise Exception("جميع أسلحة الاختراق (المحلي، Invidious، Cobalt، Piped) فشلت! يوتيوب مغلق تماماً اليوم.")
 
     print("🧠 جاري تحليل الصوت بالذكاء الاصطناعي...")
     model = WhisperModel("base", device="cpu", compute_type="int8")
@@ -426,4 +438,3 @@ if __name__ == "__main__":
             else:
                 send_telegram_alert(f"🚨 فشل نهائي!\nالسبب: `{str(e)}`")
                 sys.exit(1)
-
