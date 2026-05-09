@@ -11,6 +11,7 @@ from datetime import datetime
 from yt_dlp import YoutubeDL
 from faster_whisper import WhisperModel
 from moviepy.editor import VideoFileClip, AudioFileClip, concatenate_videoclips, TextClip, CompositeVideoClip, ColorClip
+from moviepy.video.fx.all import crop, resize
 
 # === استدعاءات إنستجرام ===
 try:
@@ -54,6 +55,23 @@ def is_valid_audio(filepath):
     except:
         return False
 
+# ================= ✂️ المقص الذكي للشاشة الكاملة (جديد) =================
+def crop_to_vertical(clip):
+    """تقوم هذه الدالة بملء الشاشة بالكامل (9:16) بدون أي حواف سوداء"""
+    target_ratio = 9 / 16
+    clip_ratio = clip.w / clip.h
+    
+    if clip_ratio > target_ratio: # الفيديو عريض (أفقي) ويحتاج قص من الجوانب
+        new_w = int(clip.h * target_ratio)
+        x_center = clip.w / 2
+        cropped_clip = crop(clip, width=new_w, height=clip.h, x_center=x_center)
+    else: # الفيديو طويل جداً ويحتاج قص من الأعلى والأسفل
+        new_h = int(clip.w / target_ratio)
+        y_center = clip.h / 2
+        cropped_clip = crop(clip, width=clip.w, height=new_h, y_center=y_center)
+        
+    return resize(cropped_clip, height=1920, width=1080)
+
 # ================= 🧠 القص الذكي عبر الاتصال المباشر (REST API) =================
 def get_smart_timestamps(transcript_segments):
     if not GEMINI_API_KEY:
@@ -63,44 +81,36 @@ def get_smart_timestamps(transcript_segments):
     for seg in transcript_segments:
         full_text_with_time += f"[{seg.start:.2f}s - {seg.end:.2f}s]: {seg.text}\n"
 
+    # أمر صارم جداً للذكاء الاصطناعي لتجنب التخريف
     prompt = f"""
-    أنت خبير في القرآن الكريم. أمامك نص مستخرج من تلاوة قرآنية مع التوقيت الزمني لكل جملة.
-    المطلوب تحديد نقطة البداية ونقطة النهاية بدقة (بالثواني) لعمل مقطع فيديو ريلز مدته بين 40 و 60 ثانية:
-    1. البداية: ابحث عن أول كلمة يبدأ فيها القارئ التلاوة الفعلية (تخطى البسملة والاستعاذة والمقدمات).
-    2. النهاية: ابحث عن نهاية آية صحيحة تكتمل بها المعاني.
+    أنت خبير في القرآن الكريم. أمامك نص مستخرج من تلاوة قرآنية مع التوقيت الزمني.
+    المطلوب تحديد نقطة البداية ونقطة النهاية بدقة (بالثواني) لعمل مقطع فيديو ريلز مدته بين 40 و 58 ثانية:
+    1. البداية: ابحث عن أول كلمة يبدأ فيها القارئ التلاوة الفعلية متخطياً أي مقدمات.
+    2. النهاية: يجب أن تكون عند نهاية آية تامة المعنى.
     
     النص:
     {full_text_with_time}
     
-    رد علي فقط بالأرقام بهذا الشكل بالضبط بدون أي نصوص إضافية:
-    START: رقم
-    END: رقم
+    أجب فقط بهذه الصيغة (بدون أي حرف إضافي):
+    START: 00.00
+    END: 00.00
     """
     
     api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
     headers = {'Content-Type': 'application/json'}
-    payload = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": 0.2}
-    }
+    payload = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"temperature": 0.1}}
 
     try:
-        print("🔄 جاري الاتصال المباشر بعقل Gemini...")
         response = requests.post(api_url, headers=headers, json=payload, timeout=30)
         if response.status_code == 200:
-            resp_data = response.json()
-            text_response = resp_data['candidates'][0]['content']['parts'][0]['text']
+            text_response = response.json()['candidates'][0]['content']['parts'][0]['text']
             match_start = re.search(r'START:\s*([0-9.]+)', text_response)
             match_end = re.search(r'END:\s*([0-9.]+)', text_response)
+            
             if match_start and match_end:
-                start = float(match_start.group(1))
-                end = float(match_end.group(1)) + 1.5 
-                print("✅ نجح Gemini عبر الاتصال المباشر!")
-                return start, end, None
-            else:
-                return None, None, "لم يتمكن Gemini من استخراج الأرقام بالصيغة المطلوبة."
-        else:
-            return None, None, f"خطأ في الاتصال المباشر: {response.status_code}"
+                return float(match_start.group(1)), float(match_end.group(1)), None
+            return None, None, "تنسيق الرد غير صحيح من الذكاء الاصطناعي."
+        return None, None, f"خطأ الاتصال: {response.status_code}"
     except Exception as e:
         return None, None, str(e)
 
@@ -109,20 +119,20 @@ def fix_arabic(text):
     if not text: return ""
     padded_text = f" {text} " 
     reshaper = arabic_reshaper.ArabicReshaper(configuration={'delete_harakat': False, 'support_ligatures': True})
-    reshaped_text = reshaper.reshape(padded_text)
-    return get_display(reshaped_text)
+    return get_display(reshaper.reshape(padded_text))
 
-# ================= قنوات القراء =================
+# ================= قنوات القراء وروابط الطوارئ النقية =================
 CHANNELS = [
     {"url": "https://www.youtube.com/@abdullahshaab1/videos", "name": "عبدالله شعبان"},
     {"url": "https://www.youtube.com/@9li9/videos", "name": "عبدالرحمن مسعد"}
 ]
 
-# === روابط الطوارئ المطلقة (تم تحديثها لسيرفرات أقوى) ===
+# تم إزالة العفاسي وحصر الطوارئ في قرائك المفضلين فقط
 EMERGENCY_LINKS = [
-    {"url": "https://server14.mp3quran.net/mosaad/018.mp3", "title": "سورة الكهف", "reciter": "عبدالرحمن مسعد"},
-    {"url": "https://server14.mp3quran.net/mosaad/067.mp3", "title": "سورة الملك", "reciter": "عبدالرحمن مسعد"},
-    {"url": "https://server8.mp3quran.net/afs/055.mp3", "title": "سورة الرحمن", "reciter": "مشاري العفاسي"}
+    {"url": "https://server16.mp3quran.net/a_mosaad/018.mp3", "title": "سورة الكهف", "reciter": "عبدالرحمن مسعد"},
+    {"url": "https://server16.mp3quran.net/a_mosaad/067.mp3", "title": "سورة الملك", "reciter": "عبدالرحمن مسعد"},
+    {"url": "https://server16.mp3quran.net/a_mosaad/055.mp3", "title": "سورة الرحمن", "reciter": "عبدالرحمن مسعد"},
+    {"url": "https://server16.mp3quran.net/a_mosaad/056.mp3", "title": "سورة الواقعة", "reciter": "عبدالرحمن مسعد"}
 ]
 
 def load_history():
@@ -145,31 +155,25 @@ def setup_cookies():
         return "cookies.txt"
     return None
 
-# ================= دالة التحميل الشبحية (المحدثة لتخطي Cloudflare) =================
 def download_url_safe(url, ext="mp3"):
     try:
-        print(f"🔗 جاري محاولة سحب الملف من: {url[:60]}...")
-        # استخدام المتصفح الشبح (curl_cffi) بدلاً من requests العادية
-        from curl_cffi import requests as c_requests
-        
-        # التخفي الكامل كمتصفح Chrome على Windows
-        r = c_requests.get(url, impersonate="chrome", timeout=60)
-        
+        # استخدام المتصفح الشبح (curl_cffi) إذا توفر، وإلا requests العادية
+        try:
+            from curl_cffi import requests as c_requests
+            r = c_requests.get(url, impersonate="chrome", timeout=60)
+        except:
+            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+            r = requests.get(url, headers=headers, timeout=60, stream=True)
+            
         if r.status_code in [200, 206]:
             fname = f"raw_audio_{random.randint(100,999)}.{ext}"
             with open(fname, "wb") as f:
-                f.write(r.content)
-                
-            if is_valid_audio(fname): 
-                print("✅ تم التحميل وفحص الجودة بنجاح!")
-                return fname
-            else: 
-                print("⚠️ تم التحميل ولكن الملف معطوب أو وهمي (تم حذفه).")
-                os.remove(fname)
-        else:
-            print(f"❌ السيرفر المستضيف رفض إعطاءنا الملف. كود الخطأ: {r.status_code}")
-    except Exception as e: 
-        print(f"❌ خطأ برمجي أثناء السحب: {e}")
+                try: f.write(r.content) # for curl_cffi
+                except:
+                    for chunk in r.iter_content(8192): f.write(chunk) # for requests
+            if is_valid_audio(fname): return fname
+            else: os.remove(fname)
+    except: pass
     return None
 
 # ================= بروتوكول التشغيل الرئيسي =================
@@ -183,40 +187,32 @@ def fetch_and_trim_audio():
     is_thursday = datetime.now().strftime("%A") == "Thursday"
     available_videos_pool = []
     
-    print("جاري فحص مخزون الفيديوهات في القنوات...")
+    print("جاري فحص مخزون الفيديوهات...")
     with YoutubeDL(ydl_opts_flat) as ydl:
         for channel in CHANNELS:
             try:
                 info = ydl.extract_info(channel['url'], download=False)
-                entries_to_check = info.get('entries', [])
-                if is_thursday:
-                    kahf_entries = [e for e in entries_to_check if "الكهف" in e.get('title', '')]
-                    if kahf_entries: entries_to_check = kahf_entries
+                entries = info.get('entries', [])
+                if is_thursday: entries = [e for e in entries if "الكهف" in e.get('title', '')] or entries
 
-                for entry in entries_to_check:
+                for entry in entries:
                     vid_id = entry.get('id', '')
                     title = entry.get('title', '')
-                    duration_sec = entry.get('duration', 0)
-                    if not vid_id or not title or duration_sec == 0: continue
-                    if any(word.lower() in title.lower() for word in forbidden_keywords): continue
-                    
-                    saved_time = history['youtube_clips'].get(vid_id, 0.0)
-                    if saved_time < (duration_sec - 60): 
-                        available_videos_pool.append((entry, channel['name'], saved_time))
+                    duration = entry.get('duration', 0)
+                    if not vid_id or not title or duration == 0: continue
+                    if any(w in title.lower() for w in forbidden_keywords): continue
+                    if history['youtube_clips'].get(vid_id, 0.0) < (duration - 60): 
+                        available_videos_pool.append((entry, channel['name']))
             except: pass
 
-    if not available_videos_pool:
-        raise Exception("❌ انتهت الفيديوهات الصالحة في القنوات!")
+    if not available_videos_pool: raise Exception("❌ انتهت الفيديوهات الصالحة!")
 
     selected = random.choice(available_videos_pool)
-    selected_video = selected[0]
+    vid_id = selected[0]['id']
+    video_title = selected[0]['title']
     selected_reciter = selected[1]
-    start_time_for_clip = selected[2]
-    
-    vid_id = selected_video['id']
-    video_title = selected_video['title']
     video_url = f"https://www.youtube.com/watch?v={vid_id}"
-    print(f"تم اختيار: {video_title}\nيبدأ القص من الدقيقة: {start_time_for_clip/60:.2f}")
+    start_time_for_clip = history['youtube_clips'].get(vid_id, 0.0)
     
     for f in glob.glob("raw_audio*") + ["temp_analysis.mp3", "final_audio.mp3"]:
         try: os.remove(f)
@@ -224,124 +220,107 @@ def fetch_and_trim_audio():
 
     downloaded_file = None
 
-    # ================= 🚀 السلاح الاحترافي: RapidAPI =================
-    if not RAPID_API_KEY:
-        print("⚠️ مفتاح RAPID_API_KEY مفقود! يرجى إضافته في إعدادات GitHub.")
-    else:
-        print("1️⃣ جاري التحميل باحترافية واستقرار عبر RapidAPI...")
+    # 1. محاولة RapidAPI مع التحقق من صحة الرابط
+    if RAPID_API_KEY and not downloaded_file:
+        print("1️⃣ جاري التحميل عبر RapidAPI...")
         try:
             url = "https://youtube-mp36.p.rapidapi.com/dl"
-            querystring = {"id": vid_id}
-            headers = {
-                "x-rapidapi-key": RAPID_API_KEY,
-                "x-rapidapi-host": "youtube-mp36.p.rapidapi.com"
-            }
-            res = requests.get(url, headers=headers, params=querystring, timeout=30)
-            
+            headers = {"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": "youtube-mp36.p.rapidapi.com"}
+            res = requests.get(url, headers=headers, params={"id": vid_id}, timeout=30)
             if res.status_code == 200:
-                res_data = res.json()
-                print(f"📦 استجابة RapidAPI: {str(res_data)[:150]}...") # لمعرفة ما أرسل بالضبط
-                
-                # التقاط الرابط أياً كان مساره في الـ JSON
-                dl_link = res_data.get("link") or res_data.get("url") or res_data.get("download_url")
-                
-                if dl_link:
+                dl_link = res.json().get("link") or res.json().get("download_url")
+                if dl_link and "http" in dl_link:
                     downloaded_file = download_url_safe(dl_link)
-                else:
-                    print(f"❌ رسالة من RapidAPI: لم يرسل رابطاً صالحاً. المحتوى: {res_data}")
-            else:
-                print(f"❌ RapidAPI رفض الطلب. كود الخطأ: {res.status_code}")
-        except Exception as e:
-            print(f"❌ فشل الاتصال بـ RapidAPI: {e}")
+        except: pass
 
-    # ================= 🛡️ خطة الطوارئ القصوى =================
+    # 2. محاولة yt-dlp المحلية الصامتة (محدثة لتخطي حظر السيرفرات)
     if not downloaded_file:
-        print("⚠️ فشل RapidAPI! تفعيل خطة الطوارئ فوراً...")
-        send_telegram_alert("⚠️ *تنبيه:*\nواجهت الأداة مشكلة في سحب المقطع. تم تفعيل خطة الطوارئ البديلة لضمان نشر المقطع اليوم.")
-        
-        emergency_choice = random.choice(EMERGENCY_LINKS)
-        downloaded_file = download_url_safe(emergency_choice["url"])
-        if downloaded_file:
-            video_title = emergency_choice["title"] + " (تلاوة طوارئ)"
-            vid_id = "EMERGENCY_" + str(random.randint(1000, 9999))
-            selected_reciter = emergency_choice["reciter"]
-            start_time_for_clip = random.uniform(0.0, 180.0)
-        else:
-            raise Exception("فشل نظام RapidAPI وفشلت خطة الطوارئ أيضاً! السيرفرات تحظر التحميل تماماً.")
+        print("2️⃣ جاري التحميل محلياً (yt-dlp)...")
+        ydl_opts = {'format': 'ba/best', 'outtmpl': 'raw_audio_yt.%(ext)s', 'quiet': True, 'extractor_args': {'youtube': ['player_client=ios']}}
+        if cookie_file: ydl_opts['cookiefile'] = cookie_file
+        try:
+            with YoutubeDL(ydl_opts) as ydl_dl: ydl_dl.download([video_url])
+            files = glob.glob("raw_audio_yt.*")
+            if files and is_valid_audio(files[0]): downloaded_file = files[0]
+        except: pass
 
-    print("🧠 جاري تحليل الصوت بالذكاء الاصطناعي...")
+    # 3. خطة الطوارئ النقية (قرائك المفضلين فقط)
+    if not downloaded_file:
+        print("⚠️ فشل يوتيوب تماماً! تفعيل خطة الطوارئ البديلة...")
+        emergency = random.choice(EMERGENCY_LINKS)
+        downloaded_file = download_url_safe(emergency["url"])
+        if downloaded_file:
+            video_title, vid_id, selected_reciter = emergency["title"] + " (طوارئ)", "EMERGENCY_" + str(random.randint(1000, 9999)), emergency["reciter"]
+            start_time_for_clip = random.uniform(0.0, 180.0)
+        else: raise Exception("فشل التحميل من يوتيوب وخطة الطوارئ أيضاً.")
+
+    print("🧠 جاري تحليل الصوت وإجراء القص الذكي...")
     model = WhisperModel("base", device="cpu", compute_type="int8")
-    
-    full_audio_clip = AudioFileClip(downloaded_file)
-    analysis_end = min(start_time_for_clip + 150.0, full_audio_clip.duration)
-    analysis_subclip = full_audio_clip.subclip(start_time_for_clip, analysis_end)
+    full_audio = AudioFileClip(downloaded_file)
+    analysis_subclip = full_audio.subclip(start_time_for_clip, min(start_time_for_clip + 150.0, full_audio.duration))
     analysis_subclip.write_audiofile("temp_analysis.mp3", logger=None)
     
-    segments, info = model.transcribe("temp_analysis.mp3", beam_size=5, word_timestamps=True)
+    segments, _ = model.transcribe("temp_analysis.mp3", beam_size=5, word_timestamps=True)
     segments_list = list(segments)
     try: os.remove("temp_analysis.mp3")
     except: pass
 
-    rel_start, rel_end, gemini_error = get_smart_timestamps(segments_list)
+    rel_start, rel_end, _ = get_smart_timestamps(segments_list)
     
-    if rel_start is not None and rel_end is not None:
-        absolute_start = start_time_for_clip + rel_start
-        absolute_end = start_time_for_clip + rel_end
-    else:
-        relative_start = 0.0
+    # القص الآلي (المحسن) في حال فشل الذكاء الاصطناعي
+    if rel_start is None or rel_end is None:
+        rel_start = 0.0
         if start_time_for_clip == 0.0:
-            intro_keywords = ["بسم الله", "أعوذ بالله", "الحمد لله", "رب العالمين", "سورة"]
-            for segment in segments_list:
-                if any(word in segment.text for word in intro_keywords) and segment.start < 60.0:
-                    relative_start = segment.start; break
-        relative_end = min(relative_start + 60.0, analysis_subclip.duration)
+            for s in segments_list:
+                if any(w in s.text for w in ["بسم", "أعوذ", "الحمد"]):
+                    rel_start = s.start; break
+        rel_end = min(rel_start + 55.0, analysis_subclip.duration)
         best_gap = 0
         for i in range(len(segments_list) - 1):
-            curr = segments_list[i]; nxt = segments_list[i+1]
-            if curr.end > (relative_start + 45.0) and curr.end < relative_end:
-                gap = nxt.start - curr.end
-                if gap > 1.2 and gap > best_gap:
-                    best_gap = gap; relative_end = curr.end + (gap / 2); break
-        absolute_start = start_time_for_clip + relative_start
-        absolute_end = start_time_for_clip + relative_end
+            if segments_list[i].end > (rel_start + 45.0):
+                gap = segments_list[i+1].start - segments_list[i].end
+                if gap > 1.2 and gap > best_gap: # يبحث عن سكوت حقيقي للقارئ
+                    best_gap = gap; rel_end = segments_list[i].end + (gap/2); break
 
-    if not vid_id.startswith("EMERGENCY_"):
-        history['youtube_clips'][vid_id] = absolute_end
+    absolute_start = start_time_for_clip + rel_start
+    absolute_end = start_time_for_clip + rel_end
+
+    if not str(vid_id).startswith("EMERGENCY_"): history['youtube_clips'][vid_id] = absolute_end
         
     final_audio_duration = absolute_end - absolute_start
-    trimmed_audio = full_audio_clip.subclip(absolute_start, absolute_end)
-    final_audio = trimmed_audio.audio_fadein(1.0).audio_fadeout(1.5)
+    trimmed_audio = full_audio.subclip(absolute_start, absolute_end)
+    
+    # === التلاشي الصوتي السينمائي لحل مشكلة القص الحاد ===
+    final_audio = trimmed_audio.audio_fadein(1.0).audio_fadeout(2.5) 
     final_audio.write_audiofile("final_audio.mp3", logger=None)
     
-    final_audio.close(); full_audio_clip.close()
+    final_audio.close(); full_audio.close()
     try: os.remove(downloaded_file)
     except: pass
     
     return final_audio_duration, video_title, vid_id, selected_reciter, history
 
-# ================= 3. جلب فيديوهات الطبيعة =================
+# ================= 3. جلب فيديوهات الطبيعة وملء الشاشة =================
 def fetch_pexels_videos(target_duration, history):
     today = datetime.now().strftime("%A")
     query = "drone landscape, nature" if today in ['Sunday', 'Tuesday', 'Thursday'] else "clouds, peaceful nature"
-    random_page = random.randint(1, 3)
-    headers = {"Authorization": PEXELS_API_KEY}
-    url = f"https://api.pexels.com/videos/search?query={query}&orientation=portrait&size=large&per_page=30&page={random_page}"
-    res_data = requests.get(url, headers=headers).json()
+    res_data = requests.get(f"https://api.pexels.com/videos/search?query={query}&orientation=portrait&size=large&per_page=30&page={random.randint(1, 3)}", headers={"Authorization": PEXELS_API_KEY}).json()
     
-    video_files = []
-    current_duration = 0
+    video_files, current_duration = [], 0
     for video in res_data['videos']:
         vid_id_str = str(video['id'])
-        if vid_id_str in history['used_pexels']: continue
-        if any(tag in str(video['tags']).lower() for tag in ['people', 'woman', 'face']): continue
+        if vid_id_str in history['used_pexels'] or any(t in str(video['tags']).lower() for t in ['people', 'woman', 'face']): continue
         
-        link = video['video_files'][0]['link']
-        vid_data = requests.get(link).content
-        vid_name = f"bg_vid_{vid_id_str}.mp4"
+        vid_data = requests.get(video['video_files'][0]['link']).content
+        vid_name = f"bg_{vid_id_str}.mp4"
         with open(vid_name, "wb") as f: f.write(vid_data)
+        
         clip = VideoFileClip(vid_name)
-        video_files.append((clip, vid_name))
-        current_duration += clip.duration
+        # تطبيق المقص الذكي لملء الشاشة بالكامل!
+        vertical_clip = crop_to_vertical(clip)
+        
+        video_files.append((vertical_clip, vid_name))
+        current_duration += vertical_clip.duration
         history['used_pexels'].append(vid_id_str)
         if len(history['used_pexels']) > 60: history['used_pexels'].pop(0)
         if current_duration >= target_duration: break
@@ -350,21 +329,20 @@ def fetch_pexels_videos(target_duration, history):
 # ================= 4. المونتاج السينمائي =================
 def render_cinematic_video(audio_duration, clips_data):
     clips = [data[0] for data in clips_data]
-    final_video = concatenate_videoclips(clips, method="compose", padding=-1).subclip(0, audio_duration)
-    dark_overlay = ColorClip(size=final_video.size, color=(0,0,0)).set_opacity(0.35).set_duration(audio_duration)
-    box_width = int(final_video.w * 0.9)
-    reshaped_main_title = fix_arabic("عافية قلب")
-    txt_main = TextClip(reshaped_main_title, font="taj.ttf", fontsize=28, color='white', stroke_color='black', stroke_width=1, size=(box_width, None), method='caption', align='center')
+    final_video = concatenate_videoclips(clips, method="compose").subclip(0, audio_duration)
+    dark_overlay = ColorClip(size=(1080, 1920), color=(0,0,0)).set_opacity(0.3).set_duration(audio_duration)
+    
+    txt_main = TextClip(fix_arabic("عافية قلب"), font="taj.ttf", fontsize=45, color='white', stroke_color='black', stroke_width=2, method='caption', size=(900, None), align='center')
     txt_main = txt_main.set_position('center').set_duration(audio_duration).crossfadein(1.0)
     
-    video_with_audio = CompositeVideoClip([final_video, dark_overlay, txt_main])
+    video_with_audio = CompositeVideoClip([final_video, dark_overlay, txt_main], size=(1080, 1920))
     video_with_audio = video_with_audio.fadein(1.0).fadeout(1.5)
     video_with_audio.audio = AudioFileClip("final_audio.mp3")
     video_with_audio.write_videofile("final_reel.mp4", fps=30, codec="libx264", audio_codec="aac", threads=4)
     
     video_with_audio.close(); final_video.close(); dark_overlay.close()
     for clip, name in clips_data:
-        try: os.remove(name)
+        try: clip.close(); os.remove(name)
         except: pass
 
 # ================= 5. صمام النشر لإنستجرام =================
@@ -372,41 +350,26 @@ def publish_to_instagram(reciter_name, title):
     try:
         url_tg = f"https://api.telegram.org/bot{ERROR_BOT_TOKEN}/sendVideo"
         with open('final_reel.mp4', 'rb') as video_file:
-            requests.post(url_tg, data={'chat_id': ADMIN_CHAT_ID, 'caption': f"🎥 مقطع جاهز!\n\nالقارئ: {reciter_name}\nالعنوان: {title}"}, files={'video': video_file}, timeout=200)
+            requests.post(url_tg, data={'chat_id': ADMIN_CHAT_ID, 'caption': f"🎥 جاهز للنشر!\nالقارئ: {reciter_name}\nالسورة: {title}"}, files={'video': video_file})
     except: pass
 
-    is_thursday = datetime.now().strftime("%A") == "Thursday"
-    if is_thursday:
-        caption = f"✨ سورة الكهف نور ما بين الجمعتين. لا تنسوا السنن والصلاة على النبي ﷺ.\n\nتلاوة القارئ: {reciter_name} 🤍\n#سورة_الكهف #يوم_الجمعة #قرآن #عافية_قلب"
-    else:
-        caption = f"عافية لقلبك 🤍. أرح مسمعك بتلاوة القارئ {reciter_name}.\n\n#قرآن #تلاوة #عافية_قلب"
+    caption = f"✨ سورة الكهف نور ما بين الجمعتين.\nالقارئ: {reciter_name} 🤍\n#قرآن #عافية_قلب" if datetime.now().strftime("%A") == "Thursday" else f"عافية لقلبك 🤍. القارئ {reciter_name}.\n#قرآن #تلاوة #عافية_قلب"
     
     cl = Client()
     if os.path.exists(SESSION_FILE): cl.load_settings(SESSION_FILE)
-    try:
-        cl.login(IG_USERNAME, IG_PASSWORD)
-        cl.dump_settings(SESSION_FILE)
-        cl.clip_upload("final_reel.mp4", caption)
-        print("🎉 تم النشر بنجاح!")
-    except Exception as e:
-        raise Exception(f"❌ فشل النشر: {str(e)}")
+    cl.login(IG_USERNAME, IG_PASSWORD)
+    cl.dump_settings(SESSION_FILE)
+    cl.clip_upload("final_reel.mp4", caption)
 
-# ================= التشغيل الرئيسي (بدون انتظار) =================
+# ================= التشغيل الرئيسي =================
 if __name__ == "__main__":
-    max_retries = 3 
-    for attempt in range(1, max_retries + 1):
-        try:
-            print(f"\n🚀 محاولة {attempt}/{max_retries}...")
-            dur, title, vid_id, reciter, history = fetch_and_trim_audio()
-            clips_data, updated_history = fetch_pexels_videos(dur, history)
-            render_cinematic_video(dur, clips_data)
-            publish_to_instagram(reciter, title)
-            save_history(updated_history)
-            send_telegram_alert("✅ تم النشر بنجاح!")
-            break 
-        except Exception as e:
-            if attempt < max_retries:
-                send_telegram_alert(f"⚠️ فشل محاولة {attempt}. جاري إعادة المحاولة فوراً...\nالسبب: `{str(e)}`")
-            else:
-                send_telegram_alert(f"🚨 فشل نهائي بعد 3 محاولات!\nالسبب: `{str(e)}`")
-                sys.exit(1)
+    try:
+        dur, title, vid_id, reciter, history = fetch_and_trim_audio()
+        clips_data, updated_history = fetch_pexels_videos(dur, history)
+        render_cinematic_video(dur, clips_data)
+        publish_to_instagram(reciter, title)
+        save_history(updated_history)
+        send_telegram_alert("✅ تم النشر بنجاح بملء الشاشة وبقص احترافي!")
+    except Exception as e:
+        send_telegram_alert(f"🚨 خطأ:\n`{str(e)}`")
+        sys.exit(1)
