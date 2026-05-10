@@ -7,8 +7,6 @@ import traceback
 import sys
 import re
 import glob
-import urllib.request
-import ssl
 from datetime import datetime
 from yt_dlp import YoutubeDL
 from faster_whisper import WhisperModel
@@ -35,6 +33,11 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 RAPID_API_KEY = os.environ.get("RAPID_API_KEY")
 HISTORY_FILE = "history.json"
 SESSION_FILE = "session.json"
+
+# ⚠️ ضع بيانات الأداة الثانية (Spicy-Laika) هنا ⚠️
+# انسخ الرابط (URL) واسم المضيف (Host) من صفحة الأداة في RapidAPI
+RAPID_TOOL_URL = "https://youtube-mp3-audio-video-downloader.p.rapidapi.com/language_list/DXVHmGoCTco?response_mode=default" 
+RAPID_TOOL_HOST = "youtube-mp3-audio-video-downloader.p.rapidapi.com"
 
 # ================= نظام إشعارات تليجرام =================
 def send_telegram_alert(message):
@@ -139,31 +142,24 @@ def setup_cookies():
         return "cookies.txt"
     return None
 
-# ================= 🛡️ دبابة التحميل الصارمة (تتجاهل مشاكل الأمان SSL) =================
+# ================= 🛡️ دبابة التحميل الصارمة =================
 def download_url_safe(url, ext="mp3"):
     print(f"🔗 جاري محاولة سحب الرابط المباشر...")
     if url.startswith("//"): url = "https:" + url 
     fname = f"raw_audio_{random.randint(100,999)}.{ext}"
 
-    # الطبقة 1: urllib مع تجاهل شهادات الأمان (لحماية خطة الطوارئ)
-    try:
-        ctx = ssl.create_default_context()
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
-        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req, context=ctx, timeout=60) as response, open(fname, 'wb') as out_file:
-            out_file.write(response.read())
-        if is_valid_audio(fname): return fname
-    except: pass
-
-    # الطبقة 2: requests العادية
     try:
         headers = {"User-Agent": "Mozilla/5.0"}
-        r = requests.get(url, headers=headers, timeout=60, stream=True, verify=False) # verify=False لتخطي SSL
+        r = requests.get(url, headers=headers, timeout=60, stream=True, allow_redirects=True)
         if r.status_code in [200, 206]:
             with open(fname, "wb") as f:
                 for chunk in r.iter_content(8192): f.write(chunk)
             if is_valid_audio(fname): return fname
+    except: pass
+
+    try:
+        os.system(f'curl -s -L -o "{fname}" "{url}"')
+        if is_valid_audio(fname): return fname
     except: pass
 
     try: os.remove(fname)
@@ -214,42 +210,39 @@ def fetch_and_trim_audio():
 
     downloaded_file = None
 
-    # ================= 🚀 RapidAPI (الأداة الذكية) =================
-    if RAPID_API_KEY and not downloaded_file:
-        print("1️⃣ جاري التحميل عبر RapidAPI (الأداة الجديدة Spicy-Laika)...")
-        # قمت بوضع الرابط الصحيح للأداة لتجنب 404
-        url = "https://youtube-mp3-audio-video-downloader.p.rapidapi.com/dl" 
+    # ================= 🚀 RapidAPI (الأداة الجديدة) =================
+    if RAPID_API_KEY and RAPID_TOOL_URL != "ضع_الرابط_هنا_مثل_https://..." and not downloaded_file:
+        print("1️⃣ جاري التحميل عبر أداة RapidAPI الجديدة (Spicy-Laika)...")
         headers = {
             "x-rapidapi-key": RAPID_API_KEY,
-            "x-rapidapi-host": "youtube-mp3-audio-video-downloader.p.rapidapi.com"
+            "x-rapidapi-host": RAPID_TOOL_HOST
         }
-        params = {"url": video_url}
+        
+        # بعض الأدوات تقبل url وبعضها id، سنرسل الاثنين لضمان التوافق
+        params = {"url": video_url, "id": vid_id, "videoId": vid_id}
         
         try:
-            res = requests.get(url, headers=headers, params=params, timeout=30)
+            res = requests.get(RAPID_TOOL_URL, headers=headers, params=params, timeout=30)
             if res.status_code == 200:
                 data = res.json()
-                dl_link = data.get("url") or data.get("link") or data.get("audio_url")
+                # بحث شامل عن أي رابط استرجاع
+                dl_link = data.get("url") or data.get("downloadUrl") or data.get("link") or (data.get("data") and data["data"].get("url"))
+                
                 if dl_link:
-                    print("🎉 تم استخراج الرابط المباشر، جاري التحميل...")
+                    print("🎉 تم سحب الرابط المباشر من الأداة الجديدة، جاري التحميل...")
                     downloaded_file = download_url_safe(dl_link)
+                else:
+                    print(f"❌ الأداة ردت بنجاح لكن بدون رابط مباشر: {str(data)[:100]}")
             else:
-                print(f"❌ الأداة رفضت الطلب أو الرابط غير صحيح. كود الخطأ: {res.status_code}")
+                print(f"❌ الأداة رفضت الطلب. كود الخطأ: {res.status_code}")
         except Exception as e:
             print(f"❌ خطأ أثناء الاتصال بالأداة: {e}")
 
-    # ================= 🎥 يوتيوب كبديل محلي (بدون قيود صيغ) =================
+    # ================= 🎥 يوتيوب كبديل محلي =================
     if not downloaded_file:
         print("2️⃣ جاري التحميل محلياً عبر (yt-dlp)...")
         try:
-            # 🌟 السحر هنا: حذفنا التخفي وفتحنا قيود الصيغ لتجنب Requested format is not available 🌟
-            ydl_opts = {
-                'format': 'bestaudio/best', 
-                'outtmpl': 'raw_audio_yt.%(ext)s', 
-                'quiet': True,
-                'nocheckcertificate': True,
-                'ignoreerrors': True
-            }
+            ydl_opts = {'format': 'ba', 'outtmpl': 'raw_audio_yt.%(ext)s', 'quiet': True, 'extractor_args': {'youtube': ['player_client=android']}}
             if cookie_file: ydl_opts['cookiefile'] = cookie_file
             with YoutubeDL(ydl_opts) as ydl_dl: ydl_dl.download([video_url])
             files = glob.glob("raw_audio_yt.*")
@@ -392,8 +385,9 @@ if __name__ == "__main__":
             break 
         except Exception as e:
             if attempt < max_retries:
-                send_telegram_alert(f"⚠️ فشل محاولة {attempt}. جاري إعادة المحاولة...\nالسبب: `{str(e)}`")
+                send_telegram_alert(f"⚠️ فش محاولة {attempt}. جاري إعادة المحاولة...\nالسبب: `{str(e)}`")
                 time.sleep(10)
             else:
                 send_telegram_alert(f"🚨 فشل نهائي بعد 3 محاولات!\nالسبب: `{str(e)}`")
                 sys.exit(1)
+
