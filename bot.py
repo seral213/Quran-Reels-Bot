@@ -7,6 +7,8 @@ import traceback
 import sys
 import re
 import glob
+import urllib.request
+import ssl
 from datetime import datetime
 from yt_dlp import YoutubeDL
 from faster_whisper import WhisperModel
@@ -115,11 +117,10 @@ CHANNELS = [
     {"url": "https://www.youtube.com/@9li9/videos", "name": "عبدالرحمن مسعد"}
 ]
 
-# تم تغيير السيرفر إلى server11 الأسرع والمضمون!
 EMERGENCY_LINKS = [
-    {"url": "https://server11.mp3quran.net/mosaad/018.mp3", "title": "سورة الكهف", "reciter": "عبدالرحمن مسعد"},
-    {"url": "https://server11.mp3quran.net/mosaad/067.mp3", "title": "سورة الملك", "reciter": "عبدالرحمن مسعد"},
-    {"url": "https://server11.mp3quran.net/mosaad/055.mp3", "title": "سورة الرحمن", "reciter": "عبدالرحمن مسعد"}
+    {"url": "https://server16.mp3quran.net/a_mosaad/018.mp3", "title": "سورة الكهف", "reciter": "عبدالرحمن مسعد"},
+    {"url": "https://server16.mp3quran.net/a_mosaad/067.mp3", "title": "سورة الملك", "reciter": "عبدالرحمن مسعد"},
+    {"url": "https://server16.mp3quran.net/a_mosaad/055.mp3", "title": "سورة الرحمن", "reciter": "عبدالرحمن مسعد"}
 ]
 
 def load_history():
@@ -132,21 +133,33 @@ def load_history():
 def save_history(history):
     with open(HISTORY_FILE, "w") as f: json.dump(history, f)
 
-# ================= 🛡️ دبابة التحميل الصارمة =================
+def setup_cookies():
+    if YOUTUBE_COOKIES and len(YOUTUBE_COOKIES) > 10:
+        with open("cookies.txt", "w") as f: f.write(YOUTUBE_COOKIES)
+        return "cookies.txt"
+    return None
+
+# ================= 🛡️ دبابة التحميل الصارمة (تتجاهل مشاكل الأمان SSL) =================
 def download_url_safe(url, ext="mp3"):
-    print(f"🔗 جاري محاولة السحب من: {url[:50]}...")
+    print(f"🔗 جاري محاولة سحب الرابط المباشر...")
+    if url.startswith("//"): url = "https:" + url 
     fname = f"raw_audio_{random.randint(100,999)}.{ext}"
 
-    # أداة curl مع تجاهل شهادات الأمان (-k) لحل مشكلة خطة الطوارئ
+    # الطبقة 1: urllib مع تجاهل شهادات الأمان (لحماية خطة الطوارئ)
     try:
-        os.system(f'curl -k -s -L -o "{fname}" "{url}"')
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req, context=ctx, timeout=60) as response, open(fname, 'wb') as out_file:
+            out_file.write(response.read())
         if is_valid_audio(fname): return fname
     except: pass
 
-    # مكتبة requests مع تجاهل شهادات الأمان (verify=False)
+    # الطبقة 2: requests العادية
     try:
         headers = {"User-Agent": "Mozilla/5.0"}
-        r = requests.get(url, headers=headers, timeout=60, stream=True, verify=False)
+        r = requests.get(url, headers=headers, timeout=60, stream=True, verify=False) # verify=False لتخطي SSL
         if r.status_code in [200, 206]:
             with open(fname, "wb") as f:
                 for chunk in r.iter_content(8192): f.write(chunk)
@@ -160,7 +173,9 @@ def download_url_safe(url, ext="mp3"):
 # ================= بروتوكول التشغيل الرئيسي =================
 def fetch_and_trim_audio():
     history = load_history()
+    cookie_file = setup_cookies()
     ydl_opts_flat = {'quiet': True, 'extract_flat': True}
+    if cookie_file: ydl_opts_flat['cookiefile'] = cookie_file
     
     forbidden_keywords = ['أذكار', 'اذكار', 'الصباح', 'المساء', 'النوم', 'الاستيقاظ', 'رقية', 'شرعية', 'دعاء', 'أدعية', 'بث مباشر']
     is_thursday = datetime.now().strftime("%A") == "Thursday"
@@ -199,60 +214,57 @@ def fetch_and_trim_audio():
 
     downloaded_file = None
 
-    # ================= 🚀 شبكة Invidious العالمية (السلاح الجديد الذي لا يقهر) =================
-    if not downloaded_file:
-        print("1️⃣ جاري اختراق حظر يوتيوب عبر شبكة Invidious اللامركزية...")
-        invidious_instances = [
-            "https://inv.tux.pizza", "https://vid.puffyan.us", 
-            "https://invidious.flokinet.to", "https://invidious.projectsegfau.lt"
-        ]
-        random.shuffle(invidious_instances)
-        
-        for instance in invidious_instances:
-            try:
-                res = requests.get(f"{instance}/api/v1/videos/{vid_id}", timeout=10).json()
-                for fmt in res.get("adaptiveFormats", []):
-                    if "audio" in fmt.get("type", ""):
-                        print(f"🎉 تم العثور على مسار صوتي نقي عبر {instance}!")
-                        downloaded_file = download_url_safe(fmt["url"], ext="m4a")
-                        if downloaded_file: break
-                if downloaded_file: break
-            except: continue
-
-    # ================= 🚀 RapidAPI (الأداة القديمة المضمونة ytjar) =================
+    # ================= 🚀 RapidAPI (الأداة الذكية) =================
     if RAPID_API_KEY and not downloaded_file:
-        print("2️⃣ جاري التحميل عبر أداة RapidAPI القديمة (ytjar)...")
-        url = "https://youtube-mp36.p.rapidapi.com/dl"
-        headers = {"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": "youtube-mp36.p.rapidapi.com"}
+        print("1️⃣ جاري التحميل عبر RapidAPI (الأداة الجديدة Spicy-Laika)...")
+        # قمت بوضع الرابط الصحيح للأداة لتجنب 404
+        url = "https://youtube-mp3-audio-video-downloader.p.rapidapi.com/dl" 
+        headers = {
+            "x-rapidapi-key": RAPID_API_KEY,
+            "x-rapidapi-host": "youtube-mp3-audio-video-downloader.p.rapidapi.com"
+        }
+        params = {"url": video_url}
         
-        for i in range(8):
-            try:
-                res = requests.get(url, headers=headers, params={"id": vid_id}, timeout=20)
-                if res.status_code == 200:
-                    data = res.json()
-                    status = data.get("status")
-                    if status == "ok" and data.get("link"):
-                        print("🎉 تم تحويل المقطع بنجاح في سيرفراتهم!")
-                        downloaded_file = download_url_safe(data["link"])
-                        break
-                    elif status == "processing":
-                        print(f"⏳ المقطع قيد المعالجة (محاولة {i+1}/8)...")
-                        time.sleep(4)
-                elif res.status_code == 403:
-                    print("❌ خطأ 403: غير مشترك في هذه الأداة، تم التخطي.")
-                    break
-                else: break
-            except: break
+        try:
+            res = requests.get(url, headers=headers, params=params, timeout=30)
+            if res.status_code == 200:
+                data = res.json()
+                dl_link = data.get("url") or data.get("link") or data.get("audio_url")
+                if dl_link:
+                    print("🎉 تم استخراج الرابط المباشر، جاري التحميل...")
+                    downloaded_file = download_url_safe(dl_link)
+            else:
+                print(f"❌ الأداة رفضت الطلب أو الرابط غير صحيح. كود الخطأ: {res.status_code}")
+        except Exception as e:
+            print(f"❌ خطأ أثناء الاتصال بالأداة: {e}")
+
+    # ================= 🎥 يوتيوب كبديل محلي (بدون قيود صيغ) =================
+    if not downloaded_file:
+        print("2️⃣ جاري التحميل محلياً عبر (yt-dlp)...")
+        try:
+            # 🌟 السحر هنا: حذفنا التخفي وفتحنا قيود الصيغ لتجنب Requested format is not available 🌟
+            ydl_opts = {
+                'format': 'bestaudio/best', 
+                'outtmpl': 'raw_audio_yt.%(ext)s', 
+                'quiet': True,
+                'nocheckcertificate': True,
+                'ignoreerrors': True
+            }
+            if cookie_file: ydl_opts['cookiefile'] = cookie_file
+            with YoutubeDL(ydl_opts) as ydl_dl: ydl_dl.download([video_url])
+            files = glob.glob("raw_audio_yt.*")
+            if files and is_valid_audio(files[0]): downloaded_file = files[0]
+        except Exception as e: print(f"❌ فشل يوتيوب المحلي: {e}")
 
     # ================= 🛡️ خطة الطوارئ القصوى =================
     if not downloaded_file:
-        print("⚠️ فشل يوتيوب تماماً! تفعيل خطة الطوارئ البديلة المحدثة...")
+        print("⚠️ فشل يوتيوب تماماً! تفعيل خطة الطوارئ البديلة...")
         emergency = random.choice(EMERGENCY_LINKS)
         downloaded_file = download_url_safe(emergency["url"])
         if downloaded_file:
             video_title, vid_id, selected_reciter = emergency["title"] + " (طوارئ)", "EMERGENCY_" + str(random.randint(1000, 9999)), emergency["reciter"]
             start_time_for_clip = random.uniform(0.0, 180.0)
-        else: raise Exception("فشلت جميع خطوط الهجوم وخطة الطوارئ أيضاً.")
+        else: raise Exception("فشل نظام RapidAPI وفشلت خطة الطوارئ أيضاً.")
 
     print("🧠 جاري تحليل الصوت وإجراء القص الذكي...")
     model = WhisperModel("base", device="cpu", compute_type="int8")
