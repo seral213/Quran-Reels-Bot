@@ -7,11 +7,15 @@ import traceback
 import sys
 import re
 import glob
+import urllib3
 from datetime import datetime
 from yt_dlp import YoutubeDL
 from faster_whisper import WhisperModel
 from moviepy.editor import VideoFileClip, AudioFileClip, concatenate_videoclips, TextClip, CompositeVideoClip, ColorClip
 from moviepy.video.fx.all import crop, resize
+
+# إخفاء تحذيرات الأمان المزعجة في السجل
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # === استدعاءات إنستجرام ===
 try:
@@ -33,11 +37,6 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 RAPID_API_KEY = os.environ.get("RAPID_API_KEY")
 HISTORY_FILE = "history.json"
 SESSION_FILE = "session.json"
-
-# ⚠️ ضع بيانات الأداة الثانية (Spicy-Laika) هنا ⚠️
-# انسخ الرابط (URL) واسم المضيف (Host) من صفحة الأداة في RapidAPI
-RAPID_TOOL_URL = "https://youtube-mp3-audio-video-downloader.p.rapidapi.com/language_list/DXVHmGoCTco?response_mode=default" 
-RAPID_TOOL_HOST = "youtube-mp3-audio-video-downloader.p.rapidapi.com"
 
 # ================= نظام إشعارات تليجرام =================
 def send_telegram_alert(message):
@@ -63,7 +62,6 @@ def is_valid_audio(filepath):
 def crop_to_vertical(clip):
     target_ratio = 9 / 16
     clip_ratio = clip.w / clip.h
-    
     if clip_ratio > target_ratio: 
         new_w = int(clip.h * target_ratio)
         x_center = clip.w / 2
@@ -72,7 +70,6 @@ def crop_to_vertical(clip):
         new_h = int(clip.w / target_ratio)
         y_center = clip.h / 2
         cropped_clip = crop(clip, width=clip.w, height=new_h, y_center=y_center)
-        
     return resize(cropped_clip, height=1920, width=1080)
 
 # ================= 🧠 القص الذكي =================
@@ -93,7 +90,6 @@ def get_smart_timestamps(transcript_segments):
     START: 00.00
     END: 00.00
     """
-    
     try:
         api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
         payload = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"temperature": 0.1}}
@@ -120,10 +116,11 @@ CHANNELS = [
     {"url": "https://www.youtube.com/@9li9/videos", "name": "عبدالرحمن مسعد"}
 ]
 
+# السيرفر 11 معروف باستقراره الدائم لقرآن MP3
 EMERGENCY_LINKS = [
-    {"url": "https://server16.mp3quran.net/a_mosaad/018.mp3", "title": "سورة الكهف", "reciter": "عبدالرحمن مسعد"},
-    {"url": "https://server16.mp3quran.net/a_mosaad/067.mp3", "title": "سورة الملك", "reciter": "عبدالرحمن مسعد"},
-    {"url": "https://server16.mp3quran.net/a_mosaad/055.mp3", "title": "سورة الرحمن", "reciter": "عبدالرحمن مسعد"}
+    {"url": "https://server11.mp3quran.net/mosaad/018.mp3", "title": "سورة الكهف", "reciter": "عبدالرحمن مسعد"},
+    {"url": "https://server11.mp3quran.net/mosaad/067.mp3", "title": "سورة الملك", "reciter": "عبدالرحمن مسعد"},
+    {"url": "https://server11.mp3quran.net/mosaad/055.mp3", "title": "سورة الرحمن", "reciter": "عبدالرحمن مسعد"}
 ]
 
 def load_history():
@@ -136,30 +133,45 @@ def load_history():
 def save_history(history):
     with open(HISTORY_FILE, "w") as f: json.dump(history, f)
 
-def setup_cookies():
-    if YOUTUBE_COOKIES and len(YOUTUBE_COOKIES) > 10:
-        with open("cookies.txt", "w") as f: f.write(YOUTUBE_COOKIES)
-        return "cookies.txt"
-    return None
-
-# ================= 🛡️ دبابة التحميل الصارمة =================
+# ================= 🛡️ دبابة التحميل الصارمة (تكتيك التخييم) =================
 def download_url_safe(url, ext="mp3"):
-    print(f"🔗 جاري محاولة سحب الرابط المباشر...")
+    print(f"🔗 جاري بدء عملية السحب من الرابط المباشر...")
     if url.startswith("//"): url = "https:" + url 
     fname = f"raw_audio_{random.randint(100,999)}.{ext}"
 
-    try:
-        headers = {"User-Agent": "Mozilla/5.0"}
-        r = requests.get(url, headers=headers, timeout=60, stream=True, allow_redirects=True)
-        if r.status_code in [200, 206]:
-            with open(fname, "wb") as f:
-                for chunk in r.iter_content(8192): f.write(chunk)
-            if is_valid_audio(fname): return fname
-    except: pass
+    # هوية متصفح كاملة لعدم إثارة شكوك الكلاودفلير
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "audio/webm,audio/ogg,audio/wav,audio/*;q=0.9,application/ogg;q=0.7,video/*;q=0.6,*/*;q=0.5",
+        "Connection": "keep-alive"
+    }
 
+    # 🔄 التكتيك الجديد: تكرار المحاولة 5 مرات، بانتظار 5 ثواني بينها (لانتظار تجهيز الملف في السيرفر)
+    for attempt in range(1, 6):
+        print(f"⏳ محاولة السحب ({attempt}/5)...")
+        try:
+            r = requests.get(url, headers=headers, timeout=60, stream=True, verify=False, allow_redirects=True)
+            if r.status_code in [200, 206]:
+                with open(fname, "wb") as f:
+                    for chunk in r.iter_content(8192): f.write(chunk)
+                if is_valid_audio(fname): 
+                    print("✅ تم سحب الملف المباشر بنجاح!")
+                    return fname
+            else:
+                print(f"⚠️ السيرفر رد بالكود {r.status_code} (الملف غير جاهز بعد أو محمي).")
+        except Exception as e:
+            print(f"⚠️ خطأ أثناء محاولة السحب: {e}")
+        
+        # ننام 5 ثواني ثم نهجم مرة أخرى
+        time.sleep(5)
+
+    # 💥 الضربة الأخيرة بأداة curl إذا فشلت requests
+    print("🔄 جاري تجربة السحب العنيف عبر curl...")
     try:
-        os.system(f'curl -s -L -o "{fname}" "{url}"')
-        if is_valid_audio(fname): return fname
+        os.system(f'curl -k -s -L -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" -o "{fname}" "{url}"')
+        if is_valid_audio(fname): 
+            print("✅ نجح السحب العنيف!")
+            return fname
     except: pass
 
     try: os.remove(fname)
@@ -169,9 +181,7 @@ def download_url_safe(url, ext="mp3"):
 # ================= بروتوكول التشغيل الرئيسي =================
 def fetch_and_trim_audio():
     history = load_history()
-    cookie_file = setup_cookies()
     ydl_opts_flat = {'quiet': True, 'extract_flat': True}
-    if cookie_file: ydl_opts_flat['cookiefile'] = cookie_file
     
     forbidden_keywords = ['أذكار', 'اذكار', 'الصباح', 'المساء', 'النوم', 'الاستيقاظ', 'رقية', 'شرعية', 'دعاء', 'أدعية', 'بث مباشر']
     is_thursday = datetime.now().strftime("%A") == "Thursday"
@@ -201,8 +211,6 @@ def fetch_and_trim_audio():
     vid_id = selected[0]['id']
     video_title = selected[0]['title']
     selected_reciter = selected[1]
-    video_url = f"https://www.youtube.com/watch?v={vid_id}"
-    start_time_for_clip = history['youtube_clips'].get(vid_id, 0.0)
     
     for f in glob.glob("raw_audio*") + ["temp_analysis.mp3", "final_audio.mp3"]:
         try: os.remove(f)
@@ -210,54 +218,59 @@ def fetch_and_trim_audio():
 
     downloaded_file = None
 
-    # ================= 🚀 RapidAPI (الأداة الجديدة) =================
-    if RAPID_API_KEY and RAPID_TOOL_URL != "ضع_الرابط_هنا_مثل_https://..." and not downloaded_file:
-        print("1️⃣ جاري التحميل عبر أداة RapidAPI الجديدة (Spicy-Laika)...")
-        headers = {
-            "x-rapidapi-key": RAPID_API_KEY,
-            "x-rapidapi-host": RAPID_TOOL_HOST
-        }
+    # ================= 🚀 RapidAPI (الأداة القديمة المضمونة ytjar) =================
+    if RAPID_API_KEY and not downloaded_file:
+        print("1️⃣ جاري التحميل عبر أداة RapidAPI (ytjar)...")
+        url = "https://youtube-mp36.p.rapidapi.com/dl"
+        headers = {"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": "youtube-mp36.p.rapidapi.com"}
         
-        # بعض الأدوات تقبل url وبعضها id، سنرسل الاثنين لضمان التوافق
-        params = {"url": video_url, "id": vid_id, "videoId": vid_id}
-        
-        try:
-            res = requests.get(RAPID_TOOL_URL, headers=headers, params=params, timeout=30)
-            if res.status_code == 200:
-                data = res.json()
-                # بحث شامل عن أي رابط استرجاع
-                dl_link = data.get("url") or data.get("downloadUrl") or data.get("link") or (data.get("data") and data["data"].get("url"))
-                
-                if dl_link:
-                    print("🎉 تم سحب الرابط المباشر من الأداة الجديدة، جاري التحميل...")
-                    downloaded_file = download_url_safe(dl_link)
-                else:
-                    print(f"❌ الأداة ردت بنجاح لكن بدون رابط مباشر: {str(data)[:100]}")
-            else:
-                print(f"❌ الأداة رفضت الطلب. كود الخطأ: {res.status_code}")
-        except Exception as e:
-            print(f"❌ خطأ أثناء الاتصال بالأداة: {e}")
+        for i in range(8):
+            try:
+                res = requests.get(url, headers=headers, params={"id": vid_id}, timeout=20)
+                if res.status_code == 200:
+                    data = res.json()
+                    status = data.get("status")
+                    if status == "ok" and data.get("link"):
+                        print("🎉 تم تحويل المقطع بنجاح في سيرفراتهم!")
+                        # الانتظار الأول قبل السحب
+                        time.sleep(3)
+                        downloaded_file = download_url_safe(data["link"])
+                        break
+                    elif status == "processing":
+                        print(f"⏳ المقطع قيد المعالجة (محاولة {i+1}/8)...")
+                        time.sleep(4)
+                elif res.status_code == 403:
+                    print("❌ الأداة تحتاج اشتراك، سيتم الانتقال للبديل.")
+                    break
+                else: break
+            except: break
 
-    # ================= 🎥 يوتيوب كبديل محلي =================
+    # ================= 🌐 شبكة Invidious العالمية كبديل =================
     if not downloaded_file:
-        print("2️⃣ جاري التحميل محلياً عبر (yt-dlp)...")
-        try:
-            ydl_opts = {'format': 'ba', 'outtmpl': 'raw_audio_yt.%(ext)s', 'quiet': True, 'extractor_args': {'youtube': ['player_client=android']}}
-            if cookie_file: ydl_opts['cookiefile'] = cookie_file
-            with YoutubeDL(ydl_opts) as ydl_dl: ydl_dl.download([video_url])
-            files = glob.glob("raw_audio_yt.*")
-            if files and is_valid_audio(files[0]): downloaded_file = files[0]
-        except Exception as e: print(f"❌ فشل يوتيوب المحلي: {e}")
+        print("2️⃣ جاري محاولة السحب عبر شبكة Invidious اللامركزية...")
+        invidious_instances = ["https://inv.tux.pizza", "https://vid.puffyan.us", "https://invidious.flokinet.to"]
+        random.shuffle(invidious_instances)
+        
+        for instance in invidious_instances:
+            try:
+                res = requests.get(f"{instance}/api/v1/videos/{vid_id}", timeout=10).json()
+                for fmt in res.get("adaptiveFormats", []):
+                    if "audio" in fmt.get("type", ""):
+                        print(f"🎉 تم العثور على رابط عبر {instance}!")
+                        downloaded_file = download_url_safe(fmt["url"], ext="m4a")
+                        if downloaded_file: break
+                if downloaded_file: break
+            except: continue
 
     # ================= 🛡️ خطة الطوارئ القصوى =================
     if not downloaded_file:
-        print("⚠️ فشل يوتيوب تماماً! تفعيل خطة الطوارئ البديلة...")
+        print("⚠️ فشل يوتيوب تماماً! تفعيل خطة الطوارئ البديلة المحدثة...")
         emergency = random.choice(EMERGENCY_LINKS)
         downloaded_file = download_url_safe(emergency["url"])
         if downloaded_file:
             video_title, vid_id, selected_reciter = emergency["title"] + " (طوارئ)", "EMERGENCY_" + str(random.randint(1000, 9999)), emergency["reciter"]
             start_time_for_clip = random.uniform(0.0, 180.0)
-        else: raise Exception("فشل نظام RapidAPI وفشلت خطة الطوارئ أيضاً.")
+        else: raise Exception("فشلت جميع خطوط الهجوم وخطة الطوارئ أيضاً.")
 
     print("🧠 جاري تحليل الصوت وإجراء القص الذكي...")
     model = WhisperModel("base", device="cpu", compute_type="int8")
@@ -385,9 +398,8 @@ if __name__ == "__main__":
             break 
         except Exception as e:
             if attempt < max_retries:
-                send_telegram_alert(f"⚠️ فش محاولة {attempt}. جاري إعادة المحاولة...\nالسبب: `{str(e)}`")
+                send_telegram_alert(f"⚠️ فشل محاولة {attempt}. جاري إعادة المحاولة...\nالسبب: `{str(e)}`")
                 time.sleep(10)
             else:
                 send_telegram_alert(f"🚨 فشل نهائي بعد 3 محاولات!\nالسبب: `{str(e)}`")
                 sys.exit(1)
-
