@@ -1,17 +1,22 @@
 import os
+import sys
+
+# 🌟 التحديث التلقائي الإجباري لمكتبة yt-dlp لتفادي مشاكل وتحديثات SoundCloud 🌟
+print("🔄 جاري فحص وتحديث مكتبة yt-dlp لأحدث إصدار عالمي...")
+os.system(f"{sys.executable} -m pip install -U yt-dlp --quiet")
+
 import json
 import time
 import random
 import requests
 import traceback
-import sys
 import re
 import glob
+import urllib3
 from datetime import datetime
 
 # 🌟 الرقعة البرمجية لإصلاح مكتبة الصور ومشاكل الشفافية 🌟
 from PIL import Image
-import numpy as np
 if not hasattr(Image, 'ANTIALIAS'):
     Image.ANTIALIAS = Image.Resampling.LANCZOS
 
@@ -29,15 +34,28 @@ except ImportError:
 import arabic_reshaper
 from bidi.algorithm import get_display
 
+# إخفاء تحذيرات الأمان
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
 # ================= الإعدادات والمفاتيح =================
 PEXELS_API_KEY = os.environ.get("PEXELS_API_KEY")
 IG_USERNAME = os.environ.get("IG_USERNAME")
 IG_PASSWORD = os.environ.get("IG_PASSWORD")
 ERROR_BOT_TOKEN = os.environ.get("ERROR_BOT_TOKEN")
 ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID")
-# ✅ تم تغيير المفتاح هنا ليعمل مع ChatGPT
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 SESSION_FILE = "session.json"
+
+# ================= القنوات وقاعدة البيانات =================
+RECITERS = ["عبدالرحمن مسعد", "ياسر الدوسري", "عبدالله شعبان"]
+
+# قاموس السور مع أرقامها لكي نستخدمها مع API موقع القرآن
+SURAHS_DICT = {
+    "الكهف": 18, "مريم": 19, "طه": 20, "الأنبياء": 21, "النور": 24, "الفرقان": 25, 
+    "يس": 36, "الصافات": 37, "غافر": 40, "الرحمن": 55, "الواقعة": 56, "الملك": 67, 
+    "القيامة": 75, "الإنسان": 76, "النبأ": 78, "النازعات": 79, "عبس": 80, 
+    "التكوير": 81, "الأعلى": 87, "الغاشية": 88, "الفجر": 89, "الضحى": 93, "يوسف": 12
+}
 
 # ================= نظام إشعارات تليجرام =================
 def send_telegram_alert(message):
@@ -92,7 +110,6 @@ def get_smart_timestamps(transcript_segments):
 يُمنع منعاً باتاً كتابة أي حرف إضافي.
 """
     try:
-        # ✅ ربط الاتصال بـ OpenAI بدلاً من Google
         api_url = "https://api.openai.com/v1/chat/completions"
         headers = {
             "Content-Type": "application/json",
@@ -107,7 +124,6 @@ def get_smart_timestamps(transcript_segments):
         response = requests.post(api_url, json=payload, headers=headers, timeout=30)
         
         if response.status_code == 200:
-            # استخراج الرد من هيكل بيانات OpenAI
             text_response = response.json()['choices'][0]['message']['content']
             print(f"🤖 رد ChatGPT للقص الذكي: {text_response.strip()}")
             
@@ -126,28 +142,62 @@ def fix_arabic(text):
     reshaper = arabic_reshaper.ArabicReshaper(configuration={'delete_harakat': False, 'support_ligatures': True})
     return get_display(reshaper.reshape(f" {text} "))
 
-# ================= 🎧 المصدر النظيف: SoundCloud 🎧 =================
-RECITERS = ["عبدالرحمن مسعد", "ياسر الدوسري", "عبدالله شعبان"]
-SURAHS = [
-    "الكهف", "مريم", "طه", "الأنبياء", "النور", "الفرقان", "يس", "الصافات", 
-    "غافر", "الرحمن", "الواقعة", "الملك", "القيامة", "الإنسان", "النبأ", 
-    "النازعات", "عبس", "التكوير", "الأعلى", "الغاشية", "الفجر", "الضحى", "يوسف"
-]
+# ================= 🌐 محرك MP3Quran الديناميكي (يتحدث تلقائياً من الـ API) =================
+def get_mp3quran_live_url(reciter_name, surah_number):
+    print("📡 جاري الاتصال بقاعدة بيانات MP3Quran لاستخراج الرابط الحي المحدث...")
+    api_url = "https://mp3quran.net/api/v3/reciters?language=ar"
+    try:
+        res = requests.get(api_url, timeout=15, verify=False).json()
+        for reciter in res.get('reciters', []):
+            # البحث عن اسم القارئ في قاعدة البيانات (مثل عبدالرحمن مسعد)
+            if reciter_name in reciter.get('name', ''):
+                for moshaf in reciter.get('moshaf', []):
+                    server_url = moshaf.get('server', '')
+                    if server_url:
+                        if not server_url.endswith('/'): server_url += '/'
+                        # دمج سيرفر القارئ مع رقم السورة (018.mp3)
+                        final_url = f"{server_url}{surah_number:03d}.mp3"
+                        return final_url
+    except Exception as e:
+        print(f"❌ فشل الاتصال بـ MP3Quran API: {e}")
+    return None
 
-def fetch_from_soundcloud():
+def download_url_safe(url, ext="mp3"):
+    fname = f"raw_audio_{random.randint(100,999)}.{ext}"
+    try:
+        headers = {"User-Agent": "Mozilla/5.0"}
+        r = requests.get(url, headers=headers, timeout=60, stream=True, verify=False, allow_redirects=True)
+        if r.status_code in [200, 206]:
+            with open(fname, "wb") as f:
+                for chunk in r.iter_content(8192): f.write(chunk)
+            if is_valid_audio(fname): return fname
+    except: pass
+
+    try:
+        os.system(f'curl -k -s -L -o "{fname}" "{url}"')
+        if is_valid_audio(fname): return fname
+    except: pass
+
+    try: os.remove(fname)
+    except: pass
+    return None
+
+# ================= 🎧 محرك استقطاب الصوتيات 🎧 =================
+def fetch_audio_dynamic():
     for f in glob.glob("raw_audio*") + ["temp_analysis.mp3", "final_audio.mp3", "thumb.jpg"]:
         try: os.remove(f)
         except: pass
 
     is_thursday = datetime.now().strftime("%A") == "Thursday"
-    selected_surah = "الكهف" if is_thursday else random.choice(SURAHS)
+    selected_surah_name = "الكهف" if is_thursday else random.choice(list(SURAHS_DICT.keys()))
     selected_reciter = random.choice(RECITERS)
     
-    # ✅ تعديل صيغة البحث لتكون دقيقة وصارمة لتجنب القراء الخطأ
-    search_query = f'"سورة {selected_surah}" بصوت "{selected_reciter}"'
-    video_title = f"سورة {selected_surah}"
-    
-    print(f"🔍 جاري البحث في SoundCloud عن: {search_query}")
+    video_title = f"سورة {selected_surah_name}"
+    downloaded_file = None
+
+    # ================= 1️⃣ المحرك الأول: SoundCloud =================
+    search_query = f'"سورة {selected_surah_name}" بصوت "{selected_reciter}"'
+    print(f"🔍 [المحرك 1] جاري البحث في SoundCloud عن: {search_query}")
     
     ydl_opts = {
         'format': 'bestaudio/best', 
@@ -157,7 +207,6 @@ def fetch_from_soundcloud():
         'nocheckcertificate': True
     }
     
-    downloaded_file = None
     try:
         with YoutubeDL(ydl_opts) as ydl_dl:
             ydl_dl.download([search_query])
@@ -166,10 +215,28 @@ def fetch_from_soundcloud():
             downloaded_file = files[0]
             print("✅ تم السحب من SoundCloud بنجاح!")
     except Exception as e:
-        raise Exception(f"❌ فشل البحث والتحميل من SoundCloud: {e}")
-        
+        print(f"⚠️ تحذير: فشل SoundCloud (قد يكون بسبب التحديثات): {e}")
+
+    # ================= 2️⃣ المحرك الثاني: MP3Quran API (الاحتياطي الذي لا يموت) =================
     if not downloaded_file:
-        raise Exception("🚨 لم يتم العثور على مقطع صالح.")
+        print("🔄 تحويل مسار الهجوم إلى المحرك الديناميكي (MP3Quran API)...")
+        # عبدالرحمن مسعد وياسر الدوسري متوفرون بقوة في الموقع
+        backup_reciter = random.choice(["عبدالرحمن مسعد", "ياسر الدوسري"]) 
+        surah_number = SURAHS_DICT[selected_surah_name]
+        
+        live_url = get_mp3quran_live_url(backup_reciter, surah_number)
+        
+        if live_url:
+            print(f"🎯 تم توليد الرابط المباشر من الـ API: {live_url}")
+            downloaded_file = download_url_safe(live_url)
+            if downloaded_file:
+                selected_reciter = backup_reciter
+                print("✅ تم السحب من سيرفرات MP3Quran بنجاح!")
+        else:
+            print("❌ لم يتم العثور على القارئ أو السورة في قاعدة البيانات.")
+
+    if not downloaded_file:
+        raise Exception("🚨 فشل كلا المحركين في جلب المقطع الصوتي.")
 
     print("🧠 جاري تحليل الصوت وإجراء القص الذكي (Time-Jumping)...")
     full_audio = AudioFileClip(downloaded_file)
@@ -298,7 +365,7 @@ if __name__ == "__main__":
     for attempt in range(1, max_retries + 1):
         try:
             print(f"\n🚀 محاولة {attempt}/{max_retries}...")
-            dur, title, reciter = fetch_from_soundcloud()
+            dur, title, reciter = fetch_audio_dynamic()
             clips_data = fetch_pexels_videos(dur)
             render_cinematic_video(dur, clips_data)
             publish_to_instagram(reciter, title)
