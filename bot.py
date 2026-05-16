@@ -9,7 +9,7 @@ import re
 import glob
 from datetime import datetime
 
-# 🌟 الرقعة البرمجية (Patch) لإصلاح تحطم مكتبة الصور ومربع النص 🌟
+# 🌟 الرقعة البرمجية (Patch) لإصلاح مكتبة الصور 🌟
 from PIL import Image
 if not hasattr(Image, 'ANTIALIAS'):
     Image.ANTIALIAS = Image.Resampling.LANCZOS
@@ -35,6 +35,8 @@ IG_PASSWORD = os.environ.get("IG_PASSWORD")
 ERROR_BOT_TOKEN = os.environ.get("ERROR_BOT_TOKEN")
 ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+# ✅ تم إرجاع تعريف ملف الجلسة الذي تسبب في الخطأ
+SESSION_FILE = "session.json"
 
 # ================= نظام إشعارات تليجرام =================
 def send_telegram_alert(message):
@@ -70,37 +72,41 @@ def crop_to_vertical(clip):
         cropped_clip = crop(clip, width=clip.w, height=new_h, y_center=y_center)
     return resize(cropped_clip, height=1920, width=1080)
 
-# ================= 🧠 القص الذكي للصوت (عبر Gemini) =================
+# ================= 🧠 القص الذكي للصوت (محدث وصارم) =================
 def get_smart_timestamps(transcript_segments):
     if not GEMINI_API_KEY: return None, None, "مفتاح مفقود."
-    full_text_with_time = "".join([f"[{seg.start:.2f}s - {seg.end:.2f}s]: {seg.text}\n" for seg in transcript_segments])
+    if not transcript_segments: return None, None, "لم يتم استخراج نص."
 
-    prompt = f"""
-    أنت خبير في القرآن. أمامك نص مستخرج من تلاوة.
-    حدد البداية والنهاية (بالثواني) لعمل مقطع بين 40 و 58 ثانية:
-    1. البداية: ابدأ مع أول كلمة فعلية للتلاوة.
-    2. النهاية: يجب أن تكون عند نهاية آية تامة المعنى.
-    
-    النص:
-    {full_text_with_time}
-    
-    أجب فقط بهذه الصيغة الرياضية:
-    START: 00.00
-    END: 00.00
-    """
+    full_text_with_time = "".join([f"[{seg.start:.2f} - {seg.end:.2f}]: {seg.text}\n" for seg in transcript_segments])
+
+    # هندسة أوامر صارمة لمنع Gemini من الفلسفة
+    prompt = f"""أنت خبير في المونتاج القرآني.
+أمامك نص تلاوة مع التوقيت الزمني (بالثواني).
+اختر نقطة بداية (مع بداية آية واضحة) ونقطة نهاية (عند نهاية آية تامة المعنى) ليكون المقطع بين 40 و 58 ثانية.
+
+النص:
+{full_text_with_time}
+
+الرد يجب أن يكون فقط مصفوفة أرقام بهذا الشكل بالضبط:
+[15.5, 65.2]
+يُمنع منعاً باتاً كتابة أي حرف أو كلمة إضافية.
+"""
     try:
         api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
-        payload = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"temperature": 0.1}}
+        payload = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"temperature": 0.0}}
         response = requests.post(api_url, json=payload, headers={'Content-Type': 'application/json'}, timeout=30)
         
         if response.status_code == 200:
             text_response = response.json()['candidates'][0]['content']['parts'][0]['text']
-            match_start = re.search(r'START:\s*([0-9.]+)', text_response)
-            match_end = re.search(r'END:\s*([0-9.]+)', text_response)
-            if match_start and match_end:
-                return float(match_start.group(1)), float(match_end.group(1)), None
+            print(f"🤖 رد Gemini للقص الذكي: {text_response.strip()}")
+            
+            # استخراج الأرقام بقوة حتى لو أضاف نصاً
+            nums = re.findall(r'[0-9]+(?:\.[0-9]+)?', text_response)
+            if len(nums) >= 2:
+                return float(nums[0]), float(nums[1]), None
         return None, None, f"خطأ الاتصال: {response.status_code}"
-    except Exception as e: return None, None, str(e)
+    except Exception as e: 
+        return None, None, str(e)
 
 # ================= إصلاح النص العربي =================
 def fix_arabic(text):
@@ -135,7 +141,7 @@ def fetch_from_soundcloud():
         'format': 'bestaudio/best', 
         'outtmpl': 'raw_audio_sc.%(ext)s', 
         'quiet': True,
-        'default_search': 'scsearch1', # يبحث ويحمل النتيجة الأولى مباشرة من ساوند كلاود
+        'default_search': 'scsearch1',
         'nocheckcertificate': True
     }
     
@@ -151,12 +157,12 @@ def fetch_from_soundcloud():
         raise Exception(f"❌ فشل البحث والتحميل من SoundCloud: {e}")
         
     if not downloaded_file:
-        raise Exception("🚨 لم يتم العثور على مقطع صالح في SoundCloud.")
+        raise Exception("🚨 لم يتم العثور على مقطع صالح.")
 
     print("🧠 جاري تحليل الصوت وإجراء القص الذكي (Time-Jumping)...")
     full_audio = AudioFileClip(downloaded_file)
     
-    # اختيار 3 دقائق عشوائية من المقطع لتحليلها
+    # اختيار 3 دقائق عشوائية للتحليل
     max_start = max(0, full_audio.duration - 180.0) 
     start_time_for_clip = random.uniform(0.0, max_start)
     
@@ -171,19 +177,25 @@ def fetch_from_soundcloud():
 
     rel_start, rel_end, _ = get_smart_timestamps(segments_list)
     
+    # 🌟 التصليح الجذري للقص الآلي في حال فشل Gemini 🌟
     if rel_start is None or rel_end is None:
-        rel_start = 0.0
-        if start_time_for_clip == 0.0:
-            for s in segments_list:
-                if any(w in s.text for w in ["بسم", "أعوذ", "الحمد"]):
-                    rel_start = s.start; break
-        rel_end = min(rel_start + 55.0, analysis_subclip.duration)
-        best_gap = 0
-        for i in range(len(segments_list) - 1):
-            if segments_list[i].end > (rel_start + 45.0):
-                gap = segments_list[i+1].start - segments_list[i].end
-                if gap > 1.2 and gap > best_gap: 
-                    best_gap = gap; rel_end = segments_list[i].end + (gap/2); break
+        print("⚠️ فشل الذكاء الاصطناعي، تفعيل القص الآلي الدقيق بناءً على النص...")
+        if segments_list:
+            # نبدأ من أول جملة نطقها القارئ في العينة (تجنب القص في منتصف الكلمة)
+            rel_start = segments_list[0].start
+            rel_end = min(rel_start + 55.0, analysis_subclip.duration)
+            
+            # نبحث عن سكتة (فراغ زمني) بعد 45 ثانية لنقص عندها
+            best_gap = 0
+            for i in range(len(segments_list) - 1):
+                if segments_list[i].end > (rel_start + 45.0):
+                    gap = segments_list[i+1].start - segments_list[i].end
+                    if gap > 1.0 and gap > best_gap: 
+                        best_gap = gap
+                        rel_end = segments_list[i].end + (gap/2)
+                        break
+        else:
+            rel_start, rel_end = 0.0, min(50.0, analysis_subclip.duration)
 
     absolute_start = start_time_for_clip + rel_start
     absolute_end = start_time_for_clip + rel_end
@@ -255,6 +267,7 @@ def publish_to_instagram(reciter_name, title):
         caption = f"عافية لقلبك 🤍. أرح مسمعك بتلاوة القارئ {reciter_name}.\n\n#قرآن #تلاوة #عافية_قلب #راحة #طمأنينة"
     
     cl = Client()
+    # ✅ تحميل وحفظ الجلسة الآن سيعمل بلا مشاكل لوجود المتغير
     if os.path.exists(SESSION_FILE): cl.load_settings(SESSION_FILE)
     try:
         cl.login(IG_USERNAME, IG_PASSWORD)
@@ -264,7 +277,7 @@ def publish_to_instagram(reciter_name, title):
     except Exception as e:
         raise Exception(f"❌ فشل النشر: {str(e)}")
 
-# ================= التشغيل الرئيسي المباشر =================
+# ================= التشغيل الرئيسي =================
 if __name__ == "__main__":
     max_retries = 3 
     for attempt in range(1, max_retries + 1):
