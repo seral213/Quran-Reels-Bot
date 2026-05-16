@@ -35,7 +35,8 @@ IG_USERNAME = os.environ.get("IG_USERNAME")
 IG_PASSWORD = os.environ.get("IG_PASSWORD")
 ERROR_BOT_TOKEN = os.environ.get("ERROR_BOT_TOKEN")
 ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID")
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+# ✅ تم تغيير المفتاح هنا ليعمل مع ChatGPT
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 SESSION_FILE = "session.json"
 
 # ================= نظام إشعارات تليجرام =================
@@ -72,9 +73,9 @@ def crop_to_vertical(clip):
         cropped_clip = crop(clip, width=clip.w, height=new_h, y_center=y_center)
     return resize(cropped_clip, height=1920, width=1080)
 
-# ================= 🧠 القص الذكي للصوت =================
+# ================= 🧠 القص الذكي للصوت (عبر ChatGPT) =================
 def get_smart_timestamps(transcript_segments):
-    if not GEMINI_API_KEY: return None, None, "مفتاح مفقود."
+    if not OPENAI_API_KEY: return None, None, "مفتاح OPENAI_API_KEY مفقود."
     if not transcript_segments: return None, None, "لم يتم استخراج نص."
 
     full_text_with_time = "".join([f"[{seg.start:.2f} - {seg.end:.2f}]: {seg.text}\n" for seg in transcript_segments])
@@ -91,29 +92,31 @@ def get_smart_timestamps(transcript_segments):
 يُمنع منعاً باتاً كتابة أي حرف إضافي.
 """
     try:
-        api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
-        
+        # ✅ ربط الاتصال بـ OpenAI بدلاً من Google
+        api_url = "https://api.openai.com/v1/chat/completions"
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {OPENAI_API_KEY}"
+        }
         payload = {
-            "contents": [{"parts": [{"text": prompt}]}], 
-            "generationConfig": {"temperature": 0.0},
-            "safetySettings": [
-                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-                {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-                {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-                {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}
-            ]
+            "model": "gpt-3.5-turbo",
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.0
         }
         
-        response = requests.post(api_url, json=payload, headers={'Content-Type': 'application/json'}, timeout=30)
+        response = requests.post(api_url, json=payload, headers=headers, timeout=30)
         
         if response.status_code == 200:
-            text_response = response.json()['candidates'][0]['content']['parts'][0]['text']
-            print(f"🤖 رد Gemini للقص الذكي: {text_response.strip()}")
+            # استخراج الرد من هيكل بيانات OpenAI
+            text_response = response.json()['choices'][0]['message']['content']
+            print(f"🤖 رد ChatGPT للقص الذكي: {text_response.strip()}")
             
             nums = re.findall(r'[0-9]+(?:\.[0-9]+)?', text_response)
             if len(nums) >= 2:
                 return float(nums[0]), float(nums[1]), None
-        return None, None, f"خطأ الاتصال: {response.status_code}"
+        else:
+            print(f"❌ خطأ من ChatGPT: {response.text}")
+            return None, None, f"خطأ الاتصال: {response.status_code}"
     except Exception as e: 
         return None, None, str(e)
 
@@ -140,7 +143,8 @@ def fetch_from_soundcloud():
     selected_surah = "الكهف" if is_thursday else random.choice(SURAHS)
     selected_reciter = random.choice(RECITERS)
     
-    search_query = f"{selected_reciter} سورة {selected_surah} تلاوة"
+    # ✅ تعديل صيغة البحث لتكون دقيقة وصارمة لتجنب القراء الخطأ
+    search_query = f'"سورة {selected_surah}" بصوت "{selected_reciter}"'
     video_title = f"سورة {selected_surah}"
     
     print(f"🔍 جاري البحث في SoundCloud عن: {search_query}")
@@ -249,11 +253,9 @@ def render_cinematic_video(audio_duration, clips_data):
     video_with_audio = CompositeVideoClip([final_video, dark_overlay, txt_main], size=(1080, 1920))
     video_with_audio = video_with_audio.fadein(1.0).fadeout(1.5)
     
-    # 🌟 تصدير الفيديو
     video_with_audio.audio = AudioFileClip("final_audio.mp3")
     video_with_audio.write_videofile("final_reel.mp4", fps=30, codec="libx264", audio_codec="aac", threads=4)
     
-    # 🌟 تصليح صورة الغلاف (إزالة الشفافية لتجنب خطأ RGBA)
     frame = video_with_audio.get_frame(2.0)
     img = Image.fromarray(frame)
     if img.mode != 'RGB':
@@ -285,7 +287,6 @@ def publish_to_instagram(reciter_name, title):
         cl.login(IG_USERNAME, IG_PASSWORD)
         cl.dump_settings(SESSION_FILE)
         
-        # استخدام صورة الغلاف المعالجة
         cl.clip_upload("final_reel.mp4", caption, thumbnail="thumb.jpg")
         print("🎉 تم النشر بنجاح!")
     except Exception as e:
