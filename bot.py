@@ -7,15 +7,17 @@ import traceback
 import sys
 import re
 import glob
-import urllib3
 from datetime import datetime
+
+# 🌟 الرقعة البرمجية (Patch) لإصلاح تحطم مكتبة الصور ومربع النص 🌟
+from PIL import Image
+if not hasattr(Image, 'ANTIALIAS'):
+    Image.ANTIALIAS = Image.Resampling.LANCZOS
+
 from yt_dlp import YoutubeDL
 from faster_whisper import WhisperModel
 from moviepy.editor import VideoFileClip, AudioFileClip, concatenate_videoclips, TextClip, CompositeVideoClip, ColorClip
 from moviepy.video.fx.all import crop, resize
-
-# إخفاء تحذيرات الأمان
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # === استدعاءات إنستجرام ===
 try:
@@ -33,8 +35,6 @@ IG_PASSWORD = os.environ.get("IG_PASSWORD")
 ERROR_BOT_TOKEN = os.environ.get("ERROR_BOT_TOKEN")
 ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
-HISTORY_FILE = "history.json"
-SESSION_FILE = "session.json"
 
 # ================= نظام إشعارات تليجرام =================
 def send_telegram_alert(message):
@@ -56,7 +56,7 @@ def is_valid_audio(filepath):
     except:
         return False
 
-# ================= ✂️ المقص الذكي =================
+# ================= ✂️ المقص الذكي للفيديو =================
 def crop_to_vertical(clip):
     target_ratio = 9 / 16
     clip_ratio = clip.w / clip.h
@@ -70,7 +70,7 @@ def crop_to_vertical(clip):
         cropped_clip = crop(clip, width=clip.w, height=new_h, y_center=y_center)
     return resize(cropped_clip, height=1920, width=1080)
 
-# ================= 🧠 القص الذكي (عبر Gemini) =================
+# ================= 🧠 القص الذكي للصوت (عبر Gemini) =================
 def get_smart_timestamps(transcript_segments):
     if not GEMINI_API_KEY: return None, None, "مفتاح مفقود."
     full_text_with_time = "".join([f"[{seg.start:.2f}s - {seg.end:.2f}s]: {seg.text}\n" for seg in transcript_segments])
@@ -79,7 +79,7 @@ def get_smart_timestamps(transcript_segments):
     أنت خبير في القرآن. أمامك نص مستخرج من تلاوة.
     حدد البداية والنهاية (بالثواني) لعمل مقطع بين 40 و 58 ثانية:
     1. البداية: ابدأ مع أول كلمة فعلية للتلاوة.
-    2. النهاية: يجب أن تكون عند نهاية آية تامة المعنى لتجنب القص العشوائي.
+    2. النهاية: يجب أن تكون عند نهاية آية تامة المعنى.
     
     النص:
     {full_text_with_time}
@@ -108,109 +108,55 @@ def fix_arabic(text):
     reshaper = arabic_reshaper.ArabicReshaper(configuration={'delete_harakat': False, 'support_ligatures': True})
     return get_display(reshaper.reshape(f" {text} "))
 
-# ================= 🏛️ المحرك الأساسي (MP3Quran) والاحتياطي (SoundCloud) =================
-
-MP3QURAN_RECITERS = [
-    {"path": "a_mosaad", "name": "عبدالرحمن مسعد"},
-    {"path": "yasser_d", "name": "ياسر الدوسري"} # yasser_d هو مساره الرسمي في سيرفر 11
+# ================= 🎧 المصدر النظيف: SoundCloud 🎧 =================
+RECITERS = ["عبدالرحمن مسعد", "ياسر الدوسري", "عبدالله شعبان"]
+SURAHS = [
+    "الكهف", "مريم", "طه", "الأنبياء", "النور", "الفرقان", "يس", "الصافات", 
+    "غافر", "الرحمن", "الواقعة", "الملك", "القيامة", "الإنسان", "النبأ", 
+    "النازعات", "عبس", "التكوير", "الأعلى", "الغاشية", "الفجر", "الضحى", "يوسف"
 ]
 
-SOUNDCLOUD_QUERIES = [
-    "عبدالله شعبان تلاوة",
-    "عبدالله شعبان قرآن",
-    "عبدالله شعبان سورة"
-]
-
-def load_history():
-    if os.path.exists(HISTORY_FILE):
-        try:
-            with open(HISTORY_FILE, "r") as f: return json.load(f)
-        except: pass
-    return {"used_pexels": [], "used_surahs": []}
-
-def save_history(history):
-    with open(HISTORY_FILE, "w") as f: json.dump(history, f)
-
-# ================= 🔍 الرادار الذكي (للبحث عن السور المتوفرة) =================
-def hunt_mp3quran_url():
-    print("📡 جاري البحث في سيرفرات MP3Quran عن سورة متوفرة...")
-    # نعطيه 30 محاولة ليجد سورة صالحة (لأن عبد الرحمن مسعد لا يملك 114 سورة كاملة)
-    for _ in range(30):
-        reciter = random.choice(MP3QURAN_RECITERS)
-        surah_num = random.randint(1, 114)
-        url = f"https://server11.mp3quran.net/{reciter['path']}/{surah_num:03d}.mp3"
-        
-        try:
-            # نستخدم HEAD لسرعة الفحص (أجزاء من الثانية) بدلاً من تحميل الملف
-            r = requests.head(url, timeout=5, verify=False)
-            if r.status_code == 200:
-                print(f"✅ تم العثور على سورة رقم {surah_num:03d} للقارئ {reciter['name']}")
-                return url, reciter['name'], f"سورة رقم {surah_num}"
-        except: pass
-    return None, None, None
-
-def download_file(url, ext="mp3"):
-    fname = f"raw_audio_{random.randint(100,999)}.{ext}"
-    try:
-        headers = {"User-Agent": "Mozilla/5.0"}
-        r = requests.get(url, headers=headers, timeout=60, stream=True, verify=False)
-        if r.status_code in [200, 206]:
-            with open(fname, "wb") as f:
-                for chunk in r.iter_content(8192): f.write(chunk)
-            if is_valid_audio(fname): return fname
-    except: pass
-    return None
-
-# ================= بروتوكول التشغيل الرئيسي =================
-def fetch_and_trim_audio():
+def fetch_from_soundcloud():
     for f in glob.glob("raw_audio*") + ["temp_analysis.mp3", "final_audio.mp3"]:
         try: os.remove(f)
         except: pass
 
+    # يوم الخميس نركز على الكهف
+    is_thursday = datetime.now().strftime("%A") == "Thursday"
+    selected_surah = "الكهف" if is_thursday else random.choice(SURAHS)
+    selected_reciter = random.choice(RECITERS)
+    
+    search_query = f"{selected_reciter} سورة {selected_surah} تلاوة"
+    video_title = f"سورة {selected_surah}"
+    
+    print(f"🔍 جاري البحث في SoundCloud عن: {search_query}")
+    
+    ydl_opts = {
+        'format': 'bestaudio/best', 
+        'outtmpl': 'raw_audio_sc.%(ext)s', 
+        'quiet': True,
+        'default_search': 'scsearch1', # يبحث ويحمل النتيجة الأولى مباشرة من ساوند كلاود
+        'nocheckcertificate': True
+    }
+    
     downloaded_file = None
-    reciter_name = ""
-    video_title = ""
-
-    # 1️⃣ الخطة الأساسية المنيعة (MP3Quran) - احتمال 85% للتشغيل
-    # جعلنا 15% فرصة لتشغيل SoundCloud لكي لا يُنسى عبد الله شعبان تماماً
-    if random.random() < 0.85:
-        print("1️⃣ المحرك الأساسي (MP3Quran) قيد العمل...")
-        mp3_url, reciter_name, video_title = hunt_mp3quran_url()
-        if mp3_url:
-            print("🔗 جاري تحميل المقطع من السيرفر المباشر...")
-            downloaded_file = download_file(mp3_url)
-
-    # 2️⃣ المحرك الاحتياطي (SoundCloud) - لعبدالله شعبان أو إذا فشل الأساسي
+    try:
+        with YoutubeDL(ydl_opts) as ydl_dl:
+            ydl_dl.download([search_query])
+        files = glob.glob("raw_audio_sc.*")
+        if files and is_valid_audio(files[0]):
+            downloaded_file = files[0]
+            print("✅ تم السحب من SoundCloud بنجاح!")
+    except Exception as e:
+        raise Exception(f"❌ فشل البحث والتحميل من SoundCloud: {e}")
+        
     if not downloaded_file:
-        print("2️⃣ المحرك الاحتياطي (SoundCloud) قيد العمل لعبدالله شعبان...")
-        search_query = random.choice(SOUNDCLOUD_QUERIES)
-        ydl_opts = {
-            'format': 'bestaudio/best', 
-            'outtmpl': 'raw_audio_sc.%(ext)s', 
-            'quiet': True,
-            'default_search': 'scsearch5', # يبحث في ساوند كلاود
-            'nocheckcertificate': True
-        }
-        try:
-            with YoutubeDL(ydl_opts) as ydl_dl:
-                ydl_dl.download([search_query])
-            files = glob.glob("raw_audio_sc.*")
-            if files and is_valid_audio(files[0]):
-                downloaded_file = files[0]
-                reciter_name = "عبدالله شعبان"
-                video_title = "تلاوة عذبة"
-                print("✅ تم السحب من SoundCloud بنجاح!")
-        except Exception as e:
-            print(f"❌ فشل SoundCloud: {e}")
-
-    if not downloaded_file:
-        raise Exception("🚨 فشل المحرك الأساسي والاحتياطي معاً (تأكد من اتصال السيرفر).")
+        raise Exception("🚨 لم يتم العثور على مقطع صالح في SoundCloud.")
 
     print("🧠 جاري تحليل الصوت وإجراء القص الذكي (Time-Jumping)...")
     full_audio = AudioFileClip(downloaded_file)
     
-    # 🌟 ميزة القفز الزمني (Time-Jumping) 🌟
-    # بما أن سور القرآن طويلة، نختار 3 دقائق عشوائية من منتصف السورة لنحللها
+    # اختيار 3 دقائق عشوائية من المقطع لتحليلها
     max_start = max(0, full_audio.duration - 180.0) 
     start_time_for_clip = random.uniform(0.0, max_start)
     
@@ -241,7 +187,7 @@ def fetch_and_trim_audio():
 
     absolute_start = start_time_for_clip + rel_start
     absolute_end = start_time_for_clip + rel_end
-
+        
     final_audio_duration = absolute_end - absolute_start
     trimmed_audio = full_audio.subclip(absolute_start, absolute_end)
     final_audio = trimmed_audio.audio_fadein(1.0).audio_fadeout(2.5) 
@@ -251,21 +197,20 @@ def fetch_and_trim_audio():
     try: os.remove(downloaded_file)
     except: pass
     
-    return final_audio_duration, video_title, reciter_name
+    return final_audio_duration, video_title, selected_reciter
 
 # ================= 3. جلب فيديوهات الطبيعة =================
-def fetch_pexels_videos(target_duration, history):
+def fetch_pexels_videos(target_duration):
     today = datetime.now().strftime("%A")
     query = "drone landscape, nature" if today in ['Sunday', 'Tuesday', 'Thursday'] else "clouds, peaceful nature"
     res_data = requests.get(f"https://api.pexels.com/videos/search?query={query}&orientation=portrait&size=large&per_page=30&page={random.randint(1, 3)}", headers={"Authorization": PEXELS_API_KEY}).json()
     
     video_files, current_duration = [], 0
     for video in res_data['videos']:
-        vid_id_str = str(video['id'])
-        if vid_id_str in history['used_pexels'] or any(t in str(video['tags']).lower() for t in ['people', 'woman', 'face']): continue
+        if any(t in str(video['tags']).lower() for t in ['people', 'woman', 'face']): continue
         
         vid_data = requests.get(video['video_files'][0]['link']).content
-        vid_name = f"bg_{vid_id_str}.mp4"
+        vid_name = f"bg_{video['id']}.mp4"
         with open(vid_name, "wb") as f: f.write(vid_data)
         
         clip = VideoFileClip(vid_name)
@@ -273,12 +218,10 @@ def fetch_pexels_videos(target_duration, history):
         
         video_files.append((vertical_clip, vid_name))
         current_duration += vertical_clip.duration
-        history['used_pexels'].append(vid_id_str)
-        if len(history['used_pexels']) > 60: history['used_pexels'].pop(0)
         if current_duration >= target_duration: break
-    return video_files, history
+    return video_files
 
-# ================= 4. المونتاج =================
+# ================= 4. المونتاج السريع =================
 def render_cinematic_video(audio_duration, clips_data):
     clips = [data[0] for data in clips_data]
     final_video = concatenate_videoclips(clips, method="compose").subclip(0, audio_duration)
@@ -302,7 +245,7 @@ def publish_to_instagram(reciter_name, title):
     try:
         url_tg = f"https://api.telegram.org/bot{ERROR_BOT_TOKEN}/sendVideo"
         with open('final_reel.mp4', 'rb') as video_file:
-            requests.post(url_tg, data={'chat_id': ADMIN_CHAT_ID, 'caption': f"🎥 مقطع جاهز!\n\nالقارئ: {reciter_name}\nالعنوان: {title}"}, files={'video': video_file}, timeout=200)
+            requests.post(url_tg, data={'chat_id': ADMIN_CHAT_ID, 'caption': f"🎥 مقطع جاهز!\n\nالقارئ: {reciter_name}\nالسورة: {title}"}, files={'video': video_file}, timeout=200)
     except: pass
 
     is_thursday = datetime.now().strftime("%A") == "Thursday"
@@ -321,24 +264,22 @@ def publish_to_instagram(reciter_name, title):
     except Exception as e:
         raise Exception(f"❌ فشل النشر: {str(e)}")
 
-# ================= التشغيل الرئيسي =================
+# ================= التشغيل الرئيسي المباشر =================
 if __name__ == "__main__":
-    history = load_history()
     max_retries = 3 
     for attempt in range(1, max_retries + 1):
         try:
             print(f"\n🚀 محاولة {attempt}/{max_retries}...")
-            dur, title, reciter = fetch_and_trim_audio()
-            clips_data, history = fetch_pexels_videos(dur, history)
+            dur, title, reciter = fetch_from_soundcloud()
+            clips_data = fetch_pexels_videos(dur)
             render_cinematic_video(dur, clips_data)
             publish_to_instagram(reciter, title)
-            save_history(history)
-            send_telegram_alert("✅ تم النشر بنجاح وبتوفيق الله!")
+            send_telegram_alert("✅ تم النشر بنجاح والمشروع مستقر!")
             break 
         except Exception as e:
             if attempt < max_retries:
-                send_telegram_alert(f"⚠️ فشل محاولة {attempt}. جاري إعادة المحاولة...\nالسبب: `{str(e)}`")
+                send_telegram_alert(f"⚠️ فشل محاولة {attempt}. جاري الإعادة...\nالسبب: `{str(e)}`")
                 time.sleep(10)
             else:
-                send_telegram_alert(f"🚨 فشل نهائي بعد 3 محاولات!\nالسبب: `{str(e)}`")
+                send_telegram_alert(f"🚨 فشل نهائي!\nالسبب: `{str(e)}`")
                 sys.exit(1)
