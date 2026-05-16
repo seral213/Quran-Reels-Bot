@@ -9,7 +9,7 @@ import re
 import glob
 from datetime import datetime
 
-# 🌟 الرقعة البرمجية (Patch) لإصلاح مكتبة الصور 🌟
+# 🌟 الرقعة البرمجية لإصلاح مكتبة الصور 🌟
 from PIL import Image
 if not hasattr(Image, 'ANTIALIAS'):
     Image.ANTIALIAS = Image.Resampling.LANCZOS
@@ -35,7 +35,6 @@ IG_PASSWORD = os.environ.get("IG_PASSWORD")
 ERROR_BOT_TOKEN = os.environ.get("ERROR_BOT_TOKEN")
 ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
-# ✅ تم إرجاع تعريف ملف الجلسة الذي تسبب في الخطأ
 SESSION_FILE = "session.json"
 
 # ================= نظام إشعارات تليجرام =================
@@ -72,14 +71,13 @@ def crop_to_vertical(clip):
         cropped_clip = crop(clip, width=clip.w, height=new_h, y_center=y_center)
     return resize(cropped_clip, height=1920, width=1080)
 
-# ================= 🧠 القص الذكي للصوت (محدث وصارم) =================
+# ================= 🧠 القص الذكي للصوت (مع تعطيل فلاتر الحماية) =================
 def get_smart_timestamps(transcript_segments):
     if not GEMINI_API_KEY: return None, None, "مفتاح مفقود."
     if not transcript_segments: return None, None, "لم يتم استخراج نص."
 
     full_text_with_time = "".join([f"[{seg.start:.2f} - {seg.end:.2f}]: {seg.text}\n" for seg in transcript_segments])
 
-    # هندسة أوامر صارمة لمنع Gemini من الفلسفة
     prompt = f"""أنت خبير في المونتاج القرآني.
 أمامك نص تلاوة مع التوقيت الزمني (بالثواني).
 اختر نقطة بداية (مع بداية آية واضحة) ونقطة نهاية (عند نهاية آية تامة المعنى) ليكون المقطع بين 40 و 58 ثانية.
@@ -89,18 +87,29 @@ def get_smart_timestamps(transcript_segments):
 
 الرد يجب أن يكون فقط مصفوفة أرقام بهذا الشكل بالضبط:
 [15.5, 65.2]
-يُمنع منعاً باتاً كتابة أي حرف أو كلمة إضافية.
+يُمنع منعاً باتاً كتابة أي حرف إضافي.
 """
     try:
         api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
-        payload = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"temperature": 0.0}}
+        
+        # تعطيل فلاتر الحماية لضمان عدم حظر الآيات القرآنية
+        payload = {
+            "contents": [{"parts": [{"text": prompt}]}], 
+            "generationConfig": {"temperature": 0.0},
+            "safetySettings": [
+                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}
+            ]
+        }
+        
         response = requests.post(api_url, json=payload, headers={'Content-Type': 'application/json'}, timeout=30)
         
         if response.status_code == 200:
             text_response = response.json()['candidates'][0]['content']['parts'][0]['text']
             print(f"🤖 رد Gemini للقص الذكي: {text_response.strip()}")
             
-            # استخراج الأرقام بقوة حتى لو أضاف نصاً
             nums = re.findall(r'[0-9]+(?:\.[0-9]+)?', text_response)
             if len(nums) >= 2:
                 return float(nums[0]), float(nums[1]), None
@@ -123,11 +132,10 @@ SURAHS = [
 ]
 
 def fetch_from_soundcloud():
-    for f in glob.glob("raw_audio*") + ["temp_analysis.mp3", "final_audio.mp3"]:
+    for f in glob.glob("raw_audio*") + ["temp_analysis.mp3", "final_audio.mp3", "thumb.jpg"]:
         try: os.remove(f)
         except: pass
 
-    # يوم الخميس نركز على الكهف
     is_thursday = datetime.now().strftime("%A") == "Thursday"
     selected_surah = "الكهف" if is_thursday else random.choice(SURAHS)
     selected_reciter = random.choice(RECITERS)
@@ -162,7 +170,6 @@ def fetch_from_soundcloud():
     print("🧠 جاري تحليل الصوت وإجراء القص الذكي (Time-Jumping)...")
     full_audio = AudioFileClip(downloaded_file)
     
-    # اختيار 3 دقائق عشوائية للتحليل
     max_start = max(0, full_audio.duration - 180.0) 
     start_time_for_clip = random.uniform(0.0, max_start)
     
@@ -177,15 +184,12 @@ def fetch_from_soundcloud():
 
     rel_start, rel_end, _ = get_smart_timestamps(segments_list)
     
-    # 🌟 التصليح الجذري للقص الآلي في حال فشل Gemini 🌟
     if rel_start is None or rel_end is None:
         print("⚠️ فشل الذكاء الاصطناعي، تفعيل القص الآلي الدقيق بناءً على النص...")
         if segments_list:
-            # نبدأ من أول جملة نطقها القارئ في العينة (تجنب القص في منتصف الكلمة)
             rel_start = segments_list[0].start
             rel_end = min(rel_start + 55.0, analysis_subclip.duration)
             
-            # نبحث عن سكتة (فراغ زمني) بعد 45 ثانية لنقص عندها
             best_gap = 0
             for i in range(len(segments_list) - 1):
                 if segments_list[i].end > (rel_start + 45.0):
@@ -244,8 +248,13 @@ def render_cinematic_video(audio_duration, clips_data):
     
     video_with_audio = CompositeVideoClip([final_video, dark_overlay, txt_main], size=(1080, 1920))
     video_with_audio = video_with_audio.fadein(1.0).fadeout(1.5)
+    
+    # تصدير الفيديو النهائي
     video_with_audio.audio = AudioFileClip("final_audio.mp3")
     video_with_audio.write_videofile("final_reel.mp4", fps=30, codec="libx264", audio_codec="aac", threads=4)
+    
+    # ✅ التقاط صورة الغلاف يدوياً لمنع تحطم مكتبة إنستجرام
+    video_with_audio.save_frame("thumb.jpg", t=2.0) 
     
     video_with_audio.close(); final_video.close(); dark_overlay.close()
     for clip, name in clips_data:
@@ -267,17 +276,18 @@ def publish_to_instagram(reciter_name, title):
         caption = f"عافية لقلبك 🤍. أرح مسمعك بتلاوة القارئ {reciter_name}.\n\n#قرآن #تلاوة #عافية_قلب #راحة #طمأنينة"
     
     cl = Client()
-    # ✅ تحميل وحفظ الجلسة الآن سيعمل بلا مشاكل لوجود المتغير
     if os.path.exists(SESSION_FILE): cl.load_settings(SESSION_FILE)
     try:
         cl.login(IG_USERNAME, IG_PASSWORD)
         cl.dump_settings(SESSION_FILE)
-        cl.clip_upload("final_reel.mp4", caption)
+        
+        # ✅ تمرير صورة الغلاف المجهزة مسبقاً لكي لا يتحطم النشر
+        cl.clip_upload("final_reel.mp4", caption, thumbnail="thumb.jpg")
         print("🎉 تم النشر بنجاح!")
     except Exception as e:
         raise Exception(f"❌ فشل النشر: {str(e)}")
 
-# ================= التشغيل الرئيسي =================
+# ================= التشغيل الرئيسي المباشر =================
 if __name__ == "__main__":
     max_retries = 3 
     for attempt in range(1, max_retries + 1):
