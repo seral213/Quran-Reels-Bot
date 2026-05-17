@@ -1,8 +1,12 @@
-name: Quran Reels Auto Publisher
+name: Auto Quran Reels Studio
 
+# ⏰ متى يشتغل البوت؟
 on:
   schedule:
-    - cron: '0 15 * * *'
+    # يشتغل تلقائياً كل يوم الساعة 12:00 ظهراً بتوقيت جرينتش (حوالي 3:00 عصراً بتوقيت اليمن/مكة)
+    - cron: '0 12 * * *'
+  
+  # هذا الأمر يضيف لك زر "Run workflow" لتشغيله يدوياً في أي وقت
   workflow_dispatch:
 
 jobs:
@@ -10,42 +14,40 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: سحب الملفات
+    - name: 📥 سحب الملفات
       uses: actions/checkout@v3
 
-    - name: تجهيز لغة بايثون
+    - name: 🐍 تجهيز لغة بايثون
       uses: actions/setup-python@v4
       with:
         python-version: '3.10'
 
-    - name: تثبيت مكتبات المونتاج الأساسية
+    - name: ⚙️ تثبيت المكتبات الأساسية
       run: |
-        sudo apt-get update
-        sudo apt-get install ffmpeg imagemagick --no-install-recommends -y
-        sudo sed -i 's/none/read,write/g' /etc/ImageMagick-6/policy.xml
+        python -m pip install --upgrade pip
+        # تثبيت المكتبات من ملف المتطلبات (إذا كان موجوداً)
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+        # تثبيت إجباري للمكتبات لضمان عدم نقص أي منها
+        pip install yt-dlp faster-whisper moviepy instagrapi arabic-reshaper python-bidi Pillow numpy requests
 
-    - name: تثبيت مكتبات بايثون وأسلحة التخفي
-      run: |
-        pip install -r requirements.txt
-        pip install -U --pre yt-dlp curl-cffi pytubefix
-
-    - name: تشغيل استوديو المونتاج والنشر
-    env:
-      PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
-      IG_USERNAME: ${{ secrets.IG_USERNAME }}
-      IG_PASSWORD: ${{ secrets.IG_PASSWORD }}
-      ERROR_BOT_TOKEN: ${{ secrets.ERROR_BOT_TOKEN }}
-      ADMIN_CHAT_ID: ${{ secrets.ADMIN_CHAT_ID }}
-      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+    - name: 🎬 تشغيل استوديو المونتاج والنشر
+      env:
+        # هنا يتم سحب المفاتيح السرية وتمريرها للكود
+        PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+        IG_USERNAME: ${{ secrets.IG_USERNAME }}
+        IG_PASSWORD: ${{ secrets.IG_PASSWORD }}
+        ERROR_BOT_TOKEN: ${{ secrets.ERROR_BOT_TOKEN }}
+        ADMIN_CHAT_ID: ${{ secrets.ADMIN_CHAT_ID }}
+        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       run: python bot.py
 
-    - name: حفظ الذاكرة وجلسة إنستجرام الآمنة
+    - name: 🔐 حفظ الذاكرة وجلسة إنستجرام الآمنة
       run: |
-        git config --global user.name "QuranBot"
-        git config --global user.email "bot@example.com"
-        git add history.json
-        if [ -f session.json ]; then git add session.json; fi
-        git commit -m "تحديث الذاكرة وحفظ جلسة إنستجرام" || echo "لا يوجد تحديث جديد"
+        git config --global user.name "GitHub Actions Bot"
+        git config --global user.email "actions@github.com"
+        git add session.json
+        # هذا السطر يرفع ملف الجلسة لجيتهاب لكي يتذكره في اليوم التالي
+        git commit -m "تحديث جلسة إنستجرام الآمنة 🔒" || echo "لا توجد تغييرات في الجلسة"
         git push
