@@ -30,15 +30,15 @@ jobs:
         pip install -U --pre yt-dlp curl-cffi pytubefix
 
     - name: تشغيل استوديو المونتاج والنشر
-      env:
-        PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
-        IG_USERNAME: ${{ secrets.IG_USERNAME }}
-        IG_PASSWORD: ${{ secrets.IG_PASSWORD }}
-        ERROR_BOT_TOKEN: ${{ secrets.ERROR_BOT_TOKEN }}
-        ADMIN_CHAT_ID: ${{ secrets.ADMIN_CHAT_ID }}
-        YOUTUBE_COOKIES: ${{ secrets.YOUTUBE_COOKIES }}
-        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        RAPID_API_KEY: ${{ secrets.RAPID_API_KEY }}
+    env:
+      PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+      IG_USERNAME: ${{ secrets.IG_USERNAME }}
+      IG_PASSWORD: ${{ secrets.IG_PASSWORD }}
+      ERROR_BOT_TOKEN: ${{ secrets.ERROR_BOT_TOKEN }}
+      ADMIN_CHAT_ID: ${{ secrets.ADMIN_CHAT_ID }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       run: python bot.py
 
     - name: حفظ الذاكرة وجلسة إنستجرام الآمنة
