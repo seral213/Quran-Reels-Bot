@@ -1,7 +1,7 @@
 import os
 import sys
 
-# 🌟 التحديث التلقائي الإجباري لمكتبة yt-dlp لتفادي مشاكل وتحديثات SoundCloud 🌟
+# 🌟 التحديث التلقائي الإجباري لمكتبة yt-dlp 🌟
 print("🔄 جاري فحص وتحديث مكتبة yt-dlp لأحدث إصدار عالمي...")
 os.system(f"{sys.executable} -m pip install -U yt-dlp --quiet")
 
@@ -43,13 +43,13 @@ IG_USERNAME = os.environ.get("IG_USERNAME")
 IG_PASSWORD = os.environ.get("IG_PASSWORD")
 ERROR_BOT_TOKEN = os.environ.get("ERROR_BOT_TOKEN")
 ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID")
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY") # المفتاح الجديد
 SESSION_FILE = "session.json"
 
 # ================= القنوات وقاعدة البيانات =================
 RECITERS = ["عبدالرحمن مسعد", "ياسر الدوسري", "عبدالله شعبان"]
 
-# قاموس السور مع أرقامها لكي نستخدمها مع API موقع القرآن
 SURAHS_DICT = {
     "الكهف": 18, "مريم": 19, "طه": 20, "الأنبياء": 21, "النور": 24, "الفرقان": 25, 
     "يس": 36, "الصافات": 37, "غافر": 40, "الرحمن": 55, "الواقعة": 56, "الملك": 67, 
@@ -91,9 +91,8 @@ def crop_to_vertical(clip):
         cropped_clip = crop(clip, width=clip.w, height=new_h, y_center=y_center)
     return resize(cropped_clip, height=1920, width=1080)
 
-# ================= 🧠 القص الذكي للصوت (عبر ChatGPT) =================
+# ================= 🧠 العقل المزدوج (Gemini الأساسي + Groq الاحتياطي) =================
 def get_smart_timestamps(transcript_segments):
-    if not OPENAI_API_KEY: return None, None, "مفتاح OPENAI_API_KEY مفقود."
     if not transcript_segments: return None, None, "لم يتم استخراج نص."
 
     full_text_with_time = "".join([f"[{seg.start:.2f} - {seg.end:.2f}]: {seg.text}\n" for seg in transcript_segments])
@@ -109,32 +108,63 @@ def get_smart_timestamps(transcript_segments):
 [15.5, 65.2]
 يُمنع منعاً باتاً كتابة أي حرف إضافي.
 """
-    try:
-        api_url = "https://api.openai.com/v1/chat/completions"
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {OPENAI_API_KEY}"
-        }
-        payload = {
-            "model": "gpt-3.5-turbo",
-            "messages": [{"role": "user", "content": prompt}],
-            "temperature": 0.0
-        }
-        
-        response = requests.post(api_url, json=payload, headers=headers, timeout=30)
-        
-        if response.status_code == 200:
-            text_response = response.json()['choices'][0]['message']['content']
-            print(f"🤖 رد ChatGPT للقص الذكي: {text_response.strip()}")
+    
+    # 1️⃣ المحاولة الأولى: Gemini 1.5 Pro
+    if GEMINI_API_KEY:
+        try:
+            print("🧠 جاري محاولة القص عبر المحرك الأساسي (Gemini 1.5 Pro)...")
+            api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro-latest:generateContent?key={GEMINI_API_KEY}"
+            payload = {
+                "contents": [{"parts": [{"text": prompt}]}], 
+                "generationConfig": {"temperature": 0.0},
+                "safetySettings": [
+                    {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+                    {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+                    {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+                    {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}
+                ]
+            }
+            response = requests.post(api_url, json=payload, headers={'Content-Type': 'application/json'}, timeout=30)
             
-            nums = re.findall(r'[0-9]+(?:\.[0-9]+)?', text_response)
-            if len(nums) >= 2:
-                return float(nums[0]), float(nums[1]), None
-        else:
-            print(f"❌ خطأ من ChatGPT: {response.text}")
-            return None, None, f"خطأ الاتصال: {response.status_code}"
-    except Exception as e: 
-        return None, None, str(e)
+            if response.status_code == 200:
+                text_response = response.json()['candidates'][0]['content']['parts'][0]['text']
+                print(f"🤖 رد Gemini: {text_response.strip()}")
+                nums = re.findall(r'[0-9]+(?:\.[0-9]+)?', text_response)
+                if len(nums) >= 2:
+                    return float(nums[0]), float(nums[1]), None
+            else:
+                print(f"⚠️ فشل Gemini (الكود: {response.status_code}). سيتم الانتقال للمحرك الاحتياطي.")
+        except Exception as e:
+            print(f"⚠️ خطأ في Gemini: {e}")
+
+    # 2️⃣ المحاولة الثانية: Groq (Llama 3)
+    if GROQ_API_KEY:
+        try:
+            print("🔄 تفعيل المحرك الاحتياطي المفتوح المصدر (Groq - Llama 3)...")
+            groq_url = "https://api.groq.com/openai/v1/chat/completions"
+            headers = {
+                "Authorization": f"Bearer {GROQ_API_KEY}",
+                "Content-Type": "application/json"
+            }
+            payload = {
+                "model": "llama3-70b-8192",
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": 0.0
+            }
+            response = requests.post(groq_url, json=payload, headers=headers, timeout=30)
+            
+            if response.status_code == 200:
+                text_response = response.json()['choices'][0]['message']['content']
+                print(f"🤖 رد Groq: {text_response.strip()}")
+                nums = re.findall(r'[0-9]+(?:\.[0-9]+)?', text_response)
+                if len(nums) >= 2:
+                    return float(nums[0]), float(nums[1]), None
+            else:
+                print(f"❌ فشل Groq (الكود: {response.status_code}).")
+        except Exception as e:
+            print(f"❌ خطأ في Groq: {e}")
+
+    return None, None, "فشلت جميع محركات الذكاء الاصطناعي."
 
 # ================= إصلاح النص العربي =================
 def fix_arabic(text):
@@ -142,20 +172,18 @@ def fix_arabic(text):
     reshaper = arabic_reshaper.ArabicReshaper(configuration={'delete_harakat': False, 'support_ligatures': True})
     return get_display(reshaper.reshape(f" {text} "))
 
-# ================= 🌐 محرك MP3Quran الديناميكي (يتحدث تلقائياً من الـ API) =================
+# ================= 🌐 محرك MP3Quran الديناميكي =================
 def get_mp3quran_live_url(reciter_name, surah_number):
     print("📡 جاري الاتصال بقاعدة بيانات MP3Quran لاستخراج الرابط الحي المحدث...")
     api_url = "https://mp3quran.net/api/v3/reciters?language=ar"
     try:
         res = requests.get(api_url, timeout=15, verify=False).json()
         for reciter in res.get('reciters', []):
-            # البحث عن اسم القارئ في قاعدة البيانات (مثل عبدالرحمن مسعد)
             if reciter_name in reciter.get('name', ''):
                 for moshaf in reciter.get('moshaf', []):
                     server_url = moshaf.get('server', '')
                     if server_url:
                         if not server_url.endswith('/'): server_url += '/'
-                        # دمج سيرفر القارئ مع رقم السورة (018.mp3)
                         final_url = f"{server_url}{surah_number:03d}.mp3"
                         return final_url
     except Exception as e:
@@ -195,7 +223,6 @@ def fetch_audio_dynamic():
     video_title = f"سورة {selected_surah_name}"
     downloaded_file = None
 
-    # ================= 1️⃣ المحرك الأول: SoundCloud =================
     search_query = f'"سورة {selected_surah_name}" بصوت "{selected_reciter}"'
     print(f"🔍 [المحرك 1] جاري البحث في SoundCloud عن: {search_query}")
     
@@ -217,10 +244,8 @@ def fetch_audio_dynamic():
     except Exception as e:
         print(f"⚠️ تحذير: فشل SoundCloud (قد يكون بسبب التحديثات): {e}")
 
-    # ================= 2️⃣ المحرك الثاني: MP3Quran API (الاحتياطي الذي لا يموت) =================
     if not downloaded_file:
         print("🔄 تحويل مسار الهجوم إلى المحرك الديناميكي (MP3Quran API)...")
-        # عبدالرحمن مسعد وياسر الدوسري متوفرون بقوة في الموقع
         backup_reciter = random.choice(["عبدالرحمن مسعد", "ياسر الدوسري"]) 
         surah_number = SURAHS_DICT[selected_surah_name]
         
