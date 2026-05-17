@@ -18,11 +18,10 @@ jobs:
       with:
         python-version: '3.10'
 
-    - name: 🛠️ إصلاح سياسات ImageMagick (للكتابة على الفيديو)
+    - name: 🛠️ إصلاح سياسات ImageMagick
       run: |
         sudo apt-get update
         sudo apt-get install -y imagemagick
-        # هذا السطر يخترق حماية السيرفر ويسمح بكتابة النصوص
         sudo sed -i 's/none/read,write/g' /etc/ImageMagick-6/policy.xml
 
     - name: ⚙️ تثبيت المكتبات الأساسية
@@ -38,9 +37,8 @@ jobs:
         IG_PASSWORD: ${{ secrets.IG_PASSWORD }}
         ERROR_BOT_TOKEN: ${{ secrets.ERROR_BOT_TOKEN }}
         ADMIN_CHAT_ID: ${{ secrets.ADMIN_CHAT_ID }}
-        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        COHERE_API_KEY: ${{ secrets.COHERE_API_KEY }}
         GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       run: python bot.py
 
     - name: 🔐 حفظ الذاكرة وجلسة إنستجرام الآمنة
