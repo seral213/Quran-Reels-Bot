@@ -84,14 +84,12 @@ def crop_to_vertical(clip):
         cropped_clip = crop(clip, width=clip.w, height=new_h, y_center=y_center)
     return resize(cropped_clip, height=1920, width=1080)
 
-# ================= 🧠 العقول المجانية (بتقنية ترقيم الأسطر لمنع العشوائية) =================
+# ================= 🧠 العقول المجانية (بتقنية ترقيم الأسطر) =================
 def get_smart_timestamps(transcript_segments, max_duration):
     if not transcript_segments: return None, None, "لم يتم استخراج نص."
 
-    # 🌟 الحيلة الجديدة: ترقيم الأسطر وتجهيزها للذكاء الاصطناعي 🌟
     numbered_text = ""
     for index, seg in enumerate(transcript_segments):
-        # نعطيه رقم السطر والنص مع الوقت التقريبي ليعرف يحسب الـ 50 ثانية
         numbered_text += f"السطر [{index}]: {seg.text} (الوقت: {seg.start:.0f} ثانية)\n"
 
     prompt = f"""أنت خبير في المونتاج القرآني.
@@ -108,7 +106,6 @@ def get_smart_timestamps(transcript_segments, max_duration):
 [3, 18]
 """
     
-    # 1️⃣ القائد: Cohere (وحش اللغة العربية)
     if COHERE_API_KEY:
         try:
             print("🧠 جاري محاولة القص عبر القائد (Cohere - Command-R) بتقنية الأسطر...")
@@ -120,20 +117,16 @@ def get_smart_timestamps(transcript_segments, max_duration):
             if response.status_code == 200:
                 text_response = response.json().get('text', '')
                 print(f"🤖 رد Cohere: {text_response.strip()}")
-                
-                # استخراج أرقام الأسطر بأمان
                 match = re.search(r'\[\s*(\d+)\s*,\s*(\d+)\s*\]', text_response)
                 if match:
                     start_idx = int(match.group(1))
                     end_idx = int(match.group(2))
-                    # تحويل رقم السطر إلى ثواني حقيقية ودقيقة جداً
                     if start_idx < len(transcript_segments) and end_idx < len(transcript_segments):
                         return transcript_segments[start_idx].start, transcript_segments[end_idx].end, None
             else:
                 print(f"⚠️ فشل Cohere (الكود: {response.status_code}). سيتم الانتقال للبديل.")
         except Exception as e: print(f"⚠️ خطأ في Cohere: {e}")
 
-    # 2️⃣ البديل الناجح: Groq
     if GROQ_API_KEY:
         try:
             print("🔄 تفعيل المحرك الاحتياطي (Groq - Llama 3.1 8B) بتقنية الأسطر...")
@@ -145,13 +138,10 @@ def get_smart_timestamps(transcript_segments, max_duration):
             if response.status_code == 200:
                 text_response = response.json()['choices'][0]['message']['content']
                 print(f"🤖 رد Groq: {text_response.strip()}")
-                
-                # استخراج أرقام الأسطر بأمان
                 match = re.search(r'\[\s*(\d+)\s*,\s*(\d+)\s*\]', text_response)
                 if match:
                     start_idx = int(match.group(1))
                     end_idx = int(match.group(2))
-                    # تحويل رقم السطر إلى ثواني حقيقية
                     if start_idx < len(transcript_segments) and end_idx < len(transcript_segments):
                         return transcript_segments[start_idx].start, transcript_segments[end_idx].end, None
             else:
@@ -254,7 +244,6 @@ def fetch_audio_dynamic():
     analysis_subclip = full_audio.subclip(start_time_for_clip, min(start_time_for_clip + 150.0, full_audio.duration))
     analysis_subclip.write_audiofile("temp_analysis.mp3", logger=None)
     
-        model = WhisperModel("base", device="cpu", compute_type="int8")
     model = WhisperModel("base", device="cpu", compute_type="int8")
     segments, _ = model.transcribe("temp_analysis.mp3", beam_size=5, word_timestamps=True)
     segments_list = list(segments)
@@ -266,29 +255,38 @@ def fetch_audio_dynamic():
     # ===================================================================
     clean_segments = []
     for seg in segments_list:
-        text_clean = seg.text.replace(" ", "") # إزالة المسافات لضمان اصطياد الكلمات
-        
-        # إذا اكتشفنا نهاية سورة أو بداية سورة جديدة
+        text_clean = seg.text.replace(" ", "") 
         if "بسمالله" in text_clean or "صدقالله" in text_clean:
-            # إذا ظهرت البسملة في بداية العينة، نمسح السطور القليلة التي قبلها ونبدأ من جديد
             if len(clean_segments) < 10: 
                 clean_segments = []
                 continue
             else:
-                # إذا ظهرت في المنتصف أو النهاية، نتوقف فوراً ونكتفي بما جمعناه من السورة الأولى
                 break
         clean_segments.append(seg)
 
-    # نعتمد القائمة النظيفة (سورة واحدة) إذا كانت طويلة بما يكفي، وإلا نكمل كالمعتاد
     if len(clean_segments) >= 8:
         segments_list = clean_segments
     # ===================================================================
 
     rel_start, rel_end, _ = get_smart_timestamps(segments_list, analysis_subclip.duration)
+    
+    if rel_start is None or rel_end is None:
+        print("⚠️ فشل الذكاء الاصطناعي، تفعيل القص الآلي الدقيق بناءً على النص...")
+        if segments_list:
+            rel_start = segments_list[0].start
+            rel_end = min(rel_start + 55.0, analysis_subclip.duration)
+            best_gap = 0
+            for i in range(len(segments_list) - 1):
+                if segments_list[i].end > (rel_start + 45.0):
+                    gap = segments_list[i+1].start - segments_list[i].end
+                    if gap > 1.0 and gap > best_gap: 
+                        best_gap = gap
+                        rel_end = segments_list[i].end + (gap/2)
+                        break
+        else:
+            rel_start, rel_end = 0.0, min(50.0, analysis_subclip.duration)
 
     # 🛡️ التعديل الهندسي الصوتي الجديد 🛡️
-    # 1. نأخذ نقطة البداية كما هي بالضبط بدون تراجع
-    # 2. نضيف 3 ثواني كاملة للنهاية لضمان التقاط صدى الصوت وآخر حرف
     rel_end = min(rel_end + 3.0, analysis_subclip.duration)
 
     absolute_start = start_time_for_clip + rel_start
@@ -297,8 +295,6 @@ def fetch_audio_dynamic():
     final_audio_duration = absolute_end - absolute_start
     trimmed_audio = full_audio.subclip(absolute_start, absolute_end)
     
-    # ✅ Fade-in سريع جداً (0.1) فقط لمنع الطقة المزعجة
-    # ✅ Fade-out (2.0) يترك ثانية كاملة لصدى الصوت قبل أن يبدأ بالتلاشي
     final_audio = trimmed_audio.audio_fadein(0.1).audio_fadeout(2.0) 
     final_audio.write_audiofile("final_audio.mp3", logger=None)
     
@@ -307,7 +303,7 @@ def fetch_audio_dynamic():
     except: pass
     
     return final_audio_duration, video_title, selected_reciter
-    
+
 def fetch_pexels_videos(target_duration):
     today = datetime.now().strftime("%A")
     query = "drone landscape, nature" if today in ['Sunday', 'Tuesday', 'Thursday'] else "clouds, peaceful nature"
