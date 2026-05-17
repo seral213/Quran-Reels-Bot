@@ -254,29 +254,36 @@ def fetch_audio_dynamic():
     analysis_subclip = full_audio.subclip(start_time_for_clip, min(start_time_for_clip + 150.0, full_audio.duration))
     analysis_subclip.write_audiofile("temp_analysis.mp3", logger=None)
     
-    model = WhisperModel("base", device="cpu", compute_type="int8")
+        model = WhisperModel("base", device="cpu", compute_type="int8")
     segments, _ = model.transcribe("temp_analysis.mp3", beam_size=5, word_timestamps=True)
     segments_list = list(segments)
     try: os.remove("temp_analysis.mp3")
     except: pass
 
+    # ===================================================================
+    # 🛡️ جدار الفصل العبقري (Sanitization) لمنع دمج سورتين 🛡️
+    # ===================================================================
+    clean_segments = []
+    for seg in segments_list:
+        text_clean = seg.text.replace(" ", "") # إزالة المسافات لضمان اصطياد الكلمات
+        
+        # إذا اكتشفنا نهاية سورة أو بداية سورة جديدة
+        if "بسمالله" in text_clean or "صدقالله" in text_clean:
+            # إذا ظهرت البسملة في بداية العينة، نمسح السطور القليلة التي قبلها ونبدأ من جديد
+            if len(clean_segments) < 10: 
+                clean_segments = []
+                continue
+            else:
+                # إذا ظهرت في المنتصف أو النهاية، نتوقف فوراً ونكتفي بما جمعناه من السورة الأولى
+                break
+        clean_segments.append(seg)
+
+    # نعتمد القائمة النظيفة (سورة واحدة) إذا كانت طويلة بما يكفي، وإلا نكمل كالمعتاد
+    if len(clean_segments) >= 8:
+        segments_list = clean_segments
+    # ===================================================================
+
     rel_start, rel_end, _ = get_smart_timestamps(segments_list, analysis_subclip.duration)
-    
-    if rel_start is None or rel_end is None:
-        print("⚠️ فشل الذكاء الاصطناعي، تفعيل القص الآلي الدقيق بناءً على النص...")
-        if segments_list:
-            rel_start = segments_list[0].start
-            rel_end = min(rel_start + 55.0, analysis_subclip.duration)
-            best_gap = 0
-            for i in range(len(segments_list) - 1):
-                if segments_list[i].end > (rel_start + 45.0):
-                    gap = segments_list[i+1].start - segments_list[i].end
-                    if gap > 1.0 and gap > best_gap: 
-                        best_gap = gap
-                        rel_end = segments_list[i].end + (gap/2)
-                        break
-        else:
-            rel_start, rel_end = 0.0, min(50.0, analysis_subclip.duration)
 
     # 🛡️ التعديل الهندسي الصوتي الجديد 🛡️
     # 1. نأخذ نقطة البداية كما هي بالضبط بدون تراجع
