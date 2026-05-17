@@ -255,6 +255,7 @@ def fetch_audio_dynamic():
     analysis_subclip.write_audiofile("temp_analysis.mp3", logger=None)
     
         model = WhisperModel("base", device="cpu", compute_type="int8")
+    model = WhisperModel("base", device="cpu", compute_type="int8")
     segments, _ = model.transcribe("temp_analysis.mp3", beam_size=5, word_timestamps=True)
     segments_list = list(segments)
     try: os.remove("temp_analysis.mp3")
