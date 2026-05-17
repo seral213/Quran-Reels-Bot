@@ -84,25 +84,34 @@ def crop_to_vertical(clip):
         cropped_clip = crop(clip, width=clip.w, height=new_h, y_center=y_center)
     return resize(cropped_clip, height=1920, width=1080)
 
-# ================= 🧠 العقول المجانية المفتوحة =================
+# ================= 🧠 العقول المجانية (بتقنية ترقيم الأسطر لمنع العشوائية) =================
 def get_smart_timestamps(transcript_segments, max_duration):
     if not transcript_segments: return None, None, "لم يتم استخراج نص."
 
-    full_text_with_time = "".join([f"[{seg.start:.2f} - {seg.end:.2f}]: {seg.text}\n" for seg in transcript_segments])
+    # 🌟 الحيلة الجديدة: ترقيم الأسطر وتجهيزها للذكاء الاصطناعي 🌟
+    numbered_text = ""
+    for index, seg in enumerate(transcript_segments):
+        # نعطيه رقم السطر والنص مع الوقت التقريبي ليعرف يحسب الـ 50 ثانية
+        numbered_text += f"السطر [{index}]: {seg.text} (الوقت: {seg.start:.0f} ثانية)\n"
+
     prompt = f"""أنت خبير في المونتاج القرآني.
-أمامك نص تلاوة مع التوقيت الزمني (بالثواني).
-اختر نقطة بداية ونقطة نهاية بحيث تبدأ بآية وتنتهي بآية تامة المعنى. يجب أن يكون طول المقطع بين 40 و 58 ثانية.
+أمامك نص تلاوة مقسم إلى أسطر مرقمة.
+مهمتك:
+1. اختر "رقم السطر" الذي يمثل بداية آية واضحة.
+2. اختر "رقم السطر" الذي يمثل نهاية آية تامة المعنى.
+3. يجب أن يكون الفرق الزمني بين السطرين حوالي 45 إلى 55 ثانية.
+
 النص:
-{full_text_with_time}
-الرد يجب أن يكون فقط مصفوفة أرقام بهذا الشكل بالضبط:
-[15.5, 65.2]
-يُمنع منعاً باتاً كتابة أي حرف إضافي.
+{numbered_text}
+
+يُمنع كتابة أي كلمة أو شرح. أجب فقط برقمي السطرين (البداية والنهاية) بصيغة مصفوفة، هكذا بالضبط:
+[3, 18]
 """
     
-    # 1️⃣ القائد: Cohere (تم تصحيح الرابط الرسمي)
+    # 1️⃣ القائد: Cohere (وحش اللغة العربية)
     if COHERE_API_KEY:
         try:
-            print("🧠 جاري محاولة القص عبر القائد (Cohere - Command-R)...")
+            print("🧠 جاري محاولة القص عبر القائد (Cohere - Command-R) بتقنية الأسطر...")
             api_url = "https://api.cohere.com/v1/chat"
             headers = {"Authorization": f"Bearer {COHERE_API_KEY}", "Content-Type": "application/json"}
             payload = {"message": prompt, "model": "command-r", "temperature": 0.0}
@@ -111,8 +120,15 @@ def get_smart_timestamps(transcript_segments, max_duration):
             if response.status_code == 200:
                 text_response = response.json().get('text', '')
                 print(f"🤖 رد Cohere: {text_response.strip()}")
-                nums = re.findall(r'[0-9]+(?:\.[0-9]+)?', text_response)
-                if len(nums) >= 2: return float(nums[0]), float(nums[1]), None
+                
+                # استخراج أرقام الأسطر بأمان
+                match = re.search(r'\[\s*(\d+)\s*,\s*(\d+)\s*\]', text_response)
+                if match:
+                    start_idx = int(match.group(1))
+                    end_idx = int(match.group(2))
+                    # تحويل رقم السطر إلى ثواني حقيقية ودقيقة جداً
+                    if start_idx < len(transcript_segments) and end_idx < len(transcript_segments):
+                        return transcript_segments[start_idx].start, transcript_segments[end_idx].end, None
             else:
                 print(f"⚠️ فشل Cohere (الكود: {response.status_code}). سيتم الانتقال للبديل.")
         except Exception as e: print(f"⚠️ خطأ في Cohere: {e}")
@@ -120,21 +136,29 @@ def get_smart_timestamps(transcript_segments, max_duration):
     # 2️⃣ البديل الناجح: Groq
     if GROQ_API_KEY:
         try:
-            print("🔄 تفعيل المحرك الاحتياطي (Groq - Llama 3.1 8B)...")
+            print("🔄 تفعيل المحرك الاحتياطي (Groq - Llama 3.1 8B) بتقنية الأسطر...")
             groq_url = "https://api.groq.com/openai/v1/chat/completions"
             headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
             payload = {"model": "llama-3.1-8b-instant", "messages": [{"role": "user", "content": prompt}], "temperature": 0.0}
             response = requests.post(groq_url, json=payload, headers=headers, timeout=30)
+            
             if response.status_code == 200:
                 text_response = response.json()['choices'][0]['message']['content']
                 print(f"🤖 رد Groq: {text_response.strip()}")
-                nums = re.findall(r'[0-9]+(?:\.[0-9]+)?', text_response)
-                if len(nums) >= 2: return float(nums[0]), float(nums[1]), None
+                
+                # استخراج أرقام الأسطر بأمان
+                match = re.search(r'\[\s*(\d+)\s*,\s*(\d+)\s*\]', text_response)
+                if match:
+                    start_idx = int(match.group(1))
+                    end_idx = int(match.group(2))
+                    # تحويل رقم السطر إلى ثواني حقيقية
+                    if start_idx < len(transcript_segments) and end_idx < len(transcript_segments):
+                        return transcript_segments[start_idx].start, transcript_segments[end_idx].end, None
             else:
                 print(f"❌ فشل Groq (الكود: {response.status_code}).")
         except Exception as e: print(f"❌ خطأ في Groq: {e}")
 
-    return None, None, "فشلت جميع محركات الذكاء الاصطناعي."
+    return None, None, "فشلت جميع محركات الذكاء الاصطناعي في تحديد الأسطر."
 
 def fix_arabic(text):
     if not text: return ""
