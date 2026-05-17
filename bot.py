@@ -41,7 +41,7 @@ IG_USERNAME = os.environ.get("IG_USERNAME")
 IG_PASSWORD = os.environ.get("IG_PASSWORD")
 ERROR_BOT_TOKEN = os.environ.get("ERROR_BOT_TOKEN")
 ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID")
-COHERE_API_KEY = os.environ.get("COHERE_API_KEY") # القائد الجديد وحش اللغة العربية
+COHERE_API_KEY = os.environ.get("COHERE_API_KEY") 
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 SESSION_FILE = "session.json"
 
@@ -99,11 +99,11 @@ def get_smart_timestamps(transcript_segments, max_duration):
 يُمنع منعاً باتاً كتابة أي حرف إضافي.
 """
     
-    # 1️⃣ القائد: Cohere (وحش اللغة العربية)
+    # 1️⃣ القائد: Cohere (تم تصحيح الرابط الرسمي)
     if COHERE_API_KEY:
         try:
             print("🧠 جاري محاولة القص عبر القائد (Cohere - Command-R)...")
-            api_url = "https://api.cohere.ai/v1/chat"
+            api_url = "https://api.cohere.com/v1/chat"
             headers = {"Authorization": f"Bearer {COHERE_API_KEY}", "Content-Type": "application/json"}
             payload = {"message": prompt, "model": "command-r", "temperature": 0.0}
             response = requests.post(api_url, json=payload, headers=headers, timeout=30)
@@ -117,13 +117,12 @@ def get_smart_timestamps(transcript_segments, max_duration):
                 print(f"⚠️ فشل Cohere (الكود: {response.status_code}). سيتم الانتقال للبديل.")
         except Exception as e: print(f"⚠️ خطأ في Cohere: {e}")
 
-    # 2️⃣ البديل: Groq (تم تحديث اسم النموذج ليعمل بدون خطأ 400)
+    # 2️⃣ البديل الناجح: Groq
     if GROQ_API_KEY:
         try:
             print("🔄 تفعيل المحرك الاحتياطي (Groq - Llama 3.1 8B)...")
             groq_url = "https://api.groq.com/openai/v1/chat/completions"
             headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
-            # ✅ تحديث الجيل إلى أحدث نسخة تعمل بكفاءة
             payload = {"model": "llama-3.1-8b-instant", "messages": [{"role": "user", "content": prompt}], "temperature": 0.0}
             response = requests.post(groq_url, json=payload, headers=headers, timeout=30)
             if response.status_code == 200:
@@ -255,7 +254,8 @@ def fetch_audio_dynamic():
         else:
             rel_start, rel_end = 0.0, min(50.0, analysis_subclip.duration)
 
-    # 🛡️ هامش أمان 2.5 ثانية لحماية نهاية الآية من التلاشي المبكر
+    # 🛡️ التعديل السحري للبداية والنهاية
+    rel_start = max(0.0, rel_start - 1.0) # نرجع ثانية للخلف لحماية أول كلمة
     rel_end = min(rel_end + 2.5, analysis_subclip.duration)
 
     absolute_start = start_time_for_clip + rel_start
@@ -263,7 +263,9 @@ def fetch_audio_dynamic():
         
     final_audio_duration = absolute_end - absolute_start
     trimmed_audio = full_audio.subclip(absolute_start, absolute_end)
-    final_audio = trimmed_audio.audio_fadein(1.0).audio_fadeout(2.5) 
+    
+    # ✅ تقليل الفيد إن لـ 0.3 عشان ما يكتم أول الكلمة
+    final_audio = trimmed_audio.audio_fadein(0.3).audio_fadeout(2.5) 
     final_audio.write_audiofile("final_audio.mp3", logger=None)
     
     final_audio.close(); full_audio.close()
