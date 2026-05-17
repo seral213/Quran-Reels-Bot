@@ -278,9 +278,10 @@ def fetch_audio_dynamic():
         else:
             rel_start, rel_end = 0.0, min(50.0, analysis_subclip.duration)
 
-    # 🛡️ التعديل السحري للبداية والنهاية
-    rel_start = max(0.0, rel_start - 1.0) # نرجع ثانية للخلف لحماية أول كلمة
-    rel_end = min(rel_end + 2.5, analysis_subclip.duration)
+    # 🛡️ التعديل الهندسي الصوتي الجديد 🛡️
+    # 1. نأخذ نقطة البداية كما هي بالضبط بدون تراجع
+    # 2. نضيف 1 ثواني كاملة للنهاية لضمان التقاط صدى الصوت وآخر حرف
+    rel_end = min(rel_end + 1.0, analysis_subclip.duration)
 
     absolute_start = start_time_for_clip + rel_start
     absolute_end = start_time_for_clip + rel_end
@@ -288,8 +289,9 @@ def fetch_audio_dynamic():
     final_audio_duration = absolute_end - absolute_start
     trimmed_audio = full_audio.subclip(absolute_start, absolute_end)
     
-    # ✅ تقليل الفيد إن لـ 0.3 عشان ما يكتم أول الكلمة
-    final_audio = trimmed_audio.audio_fadein(0.3).audio_fadeout(2.5) 
+    # ✅ Fade-in سريع جداً (0.1) فقط لمنع الطقة المزعجة
+    # ✅ Fade-out (2.0) يترك ثانية كاملة لصدى الصوت قبل أن يبدأ بالتلاشي
+    final_audio = trimmed_audio.audio_fadein(0.1).audio_fadeout(2.0) 
     final_audio.write_audiofile("final_audio.mp3", logger=None)
     
     final_audio.close(); full_audio.close()
@@ -297,7 +299,7 @@ def fetch_audio_dynamic():
     except: pass
     
     return final_audio_duration, video_title, selected_reciter
-
+    
 def fetch_pexels_videos(target_duration):
     today = datetime.now().strftime("%A")
     query = "drone landscape, nature" if today in ['Sunday', 'Tuesday', 'Thursday'] else "clouds, peaceful nature"
