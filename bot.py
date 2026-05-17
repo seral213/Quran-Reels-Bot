@@ -1,7 +1,7 @@
 import os
 import sys
 
-# 🌟 التحديث التلقائي الإجباري لمكتبة yt-dlp 🌟
+# التحديث التلقائي الإجباري لمكتبة yt-dlp
 print("🔄 جاري فحص وتحديث مكتبة yt-dlp لأحدث إصدار عالمي...")
 os.system(f"{sys.executable} -m pip install -U yt-dlp --quiet")
 
@@ -15,7 +15,7 @@ import glob
 import urllib3
 from datetime import datetime
 
-# 🌟 الرقعة البرمجية لإصلاح مكتبة الصور ومشاكل الشفافية 🌟
+# الرقعة البرمجية لإصلاح مكتبة الصور ومشاكل الشفافية
 from PIL import Image
 if not hasattr(Image, 'ANTIALIAS'):
     Image.ANTIALIAS = Image.Resampling.LANCZOS
@@ -25,7 +25,6 @@ from faster_whisper import WhisperModel
 from moviepy.editor import VideoFileClip, AudioFileClip, concatenate_videoclips, TextClip, CompositeVideoClip, ColorClip
 from moviepy.video.fx.all import crop, resize
 
-# === استدعاءات إنستجرام ===
 try:
     from instagrapi import Client
 except ImportError:
@@ -34,7 +33,6 @@ except ImportError:
 import arabic_reshaper
 from bidi.algorithm import get_display
 
-# إخفاء تحذيرات الأمان
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # ================= الإعدادات والمفاتيح =================
@@ -44,10 +42,9 @@ IG_PASSWORD = os.environ.get("IG_PASSWORD")
 ERROR_BOT_TOKEN = os.environ.get("ERROR_BOT_TOKEN")
 ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY") # المفتاح الجديد
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 SESSION_FILE = "session.json"
 
-# ================= القنوات وقاعدة البيانات =================
 RECITERS = ["عبدالرحمن مسعد", "ياسر الدوسري", "عبدالله شعبان"]
 
 SURAHS_DICT = {
@@ -57,7 +54,6 @@ SURAHS_DICT = {
     "التكوير": 81, "الأعلى": 87, "الغاشية": 88, "الفجر": 89, "الضحى": 93, "يوسف": 12
 }
 
-# ================= نظام إشعارات تليجرام =================
 def send_telegram_alert(message):
     if not ERROR_BOT_TOKEN or not ADMIN_CHAT_ID: return
     url = f"https://api.telegram.org/bot{ERROR_BOT_TOKEN}/sendMessage"
@@ -65,7 +61,6 @@ def send_telegram_alert(message):
     try: requests.post(url, data=payload)
     except: pass
 
-# ================= دالة مفتش الجودة =================
 def is_valid_audio(filepath):
     try:
         if not os.path.exists(filepath): return False
@@ -77,7 +72,6 @@ def is_valid_audio(filepath):
     except:
         return False
 
-# ================= ✂️ المقص الذكي للفيديو =================
 def crop_to_vertical(clip):
     target_ratio = 9 / 16
     clip_ratio = clip.w / clip.h
@@ -91,15 +85,15 @@ def crop_to_vertical(clip):
         cropped_clip = crop(clip, width=clip.w, height=new_h, y_center=y_center)
     return resize(cropped_clip, height=1920, width=1080)
 
-# ================= 🧠 العقل المزدوج (Gemini الأساسي + Groq الاحتياطي) =================
-def get_smart_timestamps(transcript_segments):
+# ================= 🧠 العقل المزدوج (Gemini المستقر + Groq) =================
+def get_smart_timestamps(transcript_segments, max_duration):
     if not transcript_segments: return None, None, "لم يتم استخراج نص."
 
     full_text_with_time = "".join([f"[{seg.start:.2f} - {seg.end:.2f}]: {seg.text}\n" for seg in transcript_segments])
 
     prompt = f"""أنت خبير في المونتاج القرآني.
 أمامك نص تلاوة مع التوقيت الزمني (بالثواني).
-اختر نقطة بداية (مع بداية آية واضحة) ونقطة نهاية (عند نهاية آية تامة المعنى) ليكون المقطع بين 40 و 58 ثانية.
+اختر نقطة بداية ونقطة نهاية بحيث تبدأ بآية وتنتهي بآية تامة المعنى. يجب أن يكون طول المقطع بين 40 و 58 ثانية.
 
 النص:
 {full_text_with_time}
@@ -109,11 +103,11 @@ def get_smart_timestamps(transcript_segments):
 يُمنع منعاً باتاً كتابة أي حرف إضافي.
 """
     
-    # 1️⃣ المحاولة الأولى: Gemini 1.5 Pro
+    # 1️⃣ Gemini (بمسار مستقر لتجنب 404)
     if GEMINI_API_KEY:
         try:
-            print("🧠 جاري محاولة القص عبر المحرك الأساسي (Gemini 1.5 Pro)...")
-            api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro-latest:generateContent?key={GEMINI_API_KEY}"
+            print("🧠 جاري محاولة القص عبر (Gemini)...")
+            api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
             payload = {
                 "contents": [{"parts": [{"text": prompt}]}], 
                 "generationConfig": {"temperature": 0.0},
@@ -133,11 +127,11 @@ def get_smart_timestamps(transcript_segments):
                 if len(nums) >= 2:
                     return float(nums[0]), float(nums[1]), None
             else:
-                print(f"⚠️ فشل Gemini (الكود: {response.status_code}). سيتم الانتقال للمحرك الاحتياطي.")
+                print(f"⚠️ فشل Gemini (الكود: {response.status_code}).")
         except Exception as e:
             print(f"⚠️ خطأ في Gemini: {e}")
 
-    # 2️⃣ المحاولة الثانية: Groq (Llama 3)
+    # 2️⃣ Groq (سيعمل الآن بعد إضافته لملف الـ yml)
     if GROQ_API_KEY:
         try:
             print("🔄 تفعيل المحرك الاحتياطي المفتوح المصدر (Groq - Llama 3)...")
@@ -166,13 +160,11 @@ def get_smart_timestamps(transcript_segments):
 
     return None, None, "فشلت جميع محركات الذكاء الاصطناعي."
 
-# ================= إصلاح النص العربي =================
 def fix_arabic(text):
     if not text: return ""
     reshaper = arabic_reshaper.ArabicReshaper(configuration={'delete_harakat': False, 'support_ligatures': True})
     return get_display(reshaper.reshape(f" {text} "))
 
-# ================= 🌐 محرك MP3Quran الديناميكي =================
 def get_mp3quran_live_url(reciter_name, surah_number):
     print("📡 جاري الاتصال بقاعدة بيانات MP3Quran لاستخراج الرابط الحي المحدث...")
     api_url = "https://mp3quran.net/api/v3/reciters?language=ar"
@@ -200,17 +192,14 @@ def download_url_safe(url, ext="mp3"):
                 for chunk in r.iter_content(8192): f.write(chunk)
             if is_valid_audio(fname): return fname
     except: pass
-
     try:
         os.system(f'curl -k -s -L -o "{fname}" "{url}"')
         if is_valid_audio(fname): return fname
     except: pass
-
     try: os.remove(fname)
     except: pass
     return None
 
-# ================= 🎧 محرك استقطاب الصوتيات 🎧 =================
 def fetch_audio_dynamic():
     for f in glob.glob("raw_audio*") + ["temp_analysis.mp3", "final_audio.mp3", "thumb.jpg"]:
         try: os.remove(f)
@@ -242,30 +231,28 @@ def fetch_audio_dynamic():
             downloaded_file = files[0]
             print("✅ تم السحب من SoundCloud بنجاح!")
     except Exception as e:
-        print(f"⚠️ تحذير: فشل SoundCloud (قد يكون بسبب التحديثات): {e}")
+        print(f"⚠️ تحذير: فشل SoundCloud: {e}")
 
     if not downloaded_file:
         print("🔄 تحويل مسار الهجوم إلى المحرك الديناميكي (MP3Quran API)...")
         backup_reciter = random.choice(["عبدالرحمن مسعد", "ياسر الدوسري"]) 
         surah_number = SURAHS_DICT[selected_surah_name]
-        
         live_url = get_mp3quran_live_url(backup_reciter, surah_number)
         
         if live_url:
-            print(f"🎯 تم توليد الرابط المباشر من الـ API: {live_url}")
+            print(f"🎯 تم توليد الرابط المباشر: {live_url}")
             downloaded_file = download_url_safe(live_url)
             if downloaded_file:
                 selected_reciter = backup_reciter
                 print("✅ تم السحب من سيرفرات MP3Quran بنجاح!")
         else:
-            print("❌ لم يتم العثور على القارئ أو السورة في قاعدة البيانات.")
+            print("❌ لم يتم العثور على القارئ أو السورة.")
 
     if not downloaded_file:
-        raise Exception("🚨 فشل كلا المحركين في جلب المقطع الصوتي.")
+        raise Exception("🚨 فشل كلا المحركين.")
 
     print("🧠 جاري تحليل الصوت وإجراء القص الذكي (Time-Jumping)...")
     full_audio = AudioFileClip(downloaded_file)
-    
     max_start = max(0, full_audio.duration - 180.0) 
     start_time_for_clip = random.uniform(0.0, max_start)
     
@@ -278,14 +265,13 @@ def fetch_audio_dynamic():
     try: os.remove("temp_analysis.mp3")
     except: pass
 
-    rel_start, rel_end, _ = get_smart_timestamps(segments_list)
+    rel_start, rel_end, _ = get_smart_timestamps(segments_list, analysis_subclip.duration)
     
     if rel_start is None or rel_end is None:
         print("⚠️ فشل الذكاء الاصطناعي، تفعيل القص الآلي الدقيق بناءً على النص...")
         if segments_list:
             rel_start = segments_list[0].start
             rel_end = min(rel_start + 55.0, analysis_subclip.duration)
-            
             best_gap = 0
             for i in range(len(segments_list) - 1):
                 if segments_list[i].end > (rel_start + 45.0):
@@ -296,6 +282,9 @@ def fetch_audio_dynamic():
                         break
         else:
             rel_start, rel_end = 0.0, min(50.0, analysis_subclip.duration)
+
+    # ✅ التعديل السحري لحماية نهاية الآية: إضافة هامش أمان 2 ثانية
+    rel_end = min(rel_end + 2.0, analysis_subclip.duration)
 
     absolute_start = start_time_for_clip + rel_start
     absolute_end = start_time_for_clip + rel_end
@@ -311,7 +300,6 @@ def fetch_audio_dynamic():
     
     return final_audio_duration, video_title, selected_reciter
 
-# ================= 3. جلب فيديوهات الطبيعة =================
 def fetch_pexels_videos(target_duration):
     today = datetime.now().strftime("%A")
     query = "drone landscape, nature" if today in ['Sunday', 'Tuesday', 'Thursday'] else "clouds, peaceful nature"
@@ -333,7 +321,6 @@ def fetch_pexels_videos(target_duration):
         if current_duration >= target_duration: break
     return video_files
 
-# ================= 4. المونتاج السريع =================
 def render_cinematic_video(audio_duration, clips_data):
     clips = [data[0] for data in clips_data]
     final_video = concatenate_videoclips(clips, method="compose").subclip(0, audio_duration)
@@ -350,8 +337,7 @@ def render_cinematic_video(audio_duration, clips_data):
     
     frame = video_with_audio.get_frame(2.0)
     img = Image.fromarray(frame)
-    if img.mode != 'RGB':
-        img = img.convert('RGB')
+    if img.mode != 'RGB': img = img.convert('RGB')
     img.save("thumb.jpg")
     
     video_with_audio.close(); final_video.close(); dark_overlay.close()
@@ -359,7 +345,6 @@ def render_cinematic_video(audio_duration, clips_data):
         try: clip.close(); os.remove(name)
         except: pass
 
-# ================= 5. صمام النشر لإنستجرام =================
 def publish_to_instagram(reciter_name, title):
     try:
         url_tg = f"https://api.telegram.org/bot{ERROR_BOT_TOKEN}/sendVideo"
@@ -378,13 +363,11 @@ def publish_to_instagram(reciter_name, title):
     try:
         cl.login(IG_USERNAME, IG_PASSWORD)
         cl.dump_settings(SESSION_FILE)
-        
         cl.clip_upload("final_reel.mp4", caption, thumbnail="thumb.jpg")
         print("🎉 تم النشر بنجاح!")
     except Exception as e:
         raise Exception(f"❌ فشل النشر: {str(e)}")
 
-# ================= التشغيل الرئيسي المباشر =================
 if __name__ == "__main__":
     max_retries = 3 
     for attempt in range(1, max_retries + 1):
