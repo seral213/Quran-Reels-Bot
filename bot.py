@@ -43,10 +43,10 @@ ERROR_BOT_TOKEN = os.environ.get("ERROR_BOT_TOKEN")
 ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY") # القائد الجديد
 SESSION_FILE = "session.json"
 
 RECITERS = ["عبدالرحمن مسعد", "ياسر الدوسري", "عبدالله شعبان"]
-
 SURAHS_DICT = {
     "الكهف": 18, "مريم": 19, "طه": 20, "الأنبياء": 21, "النور": 24, "الفرقان": 25, 
     "يس": 36, "الصافات": 37, "غافر": 40, "الرحمن": 55, "الواقعة": 56, "الملك": 67, 
@@ -85,29 +85,44 @@ def crop_to_vertical(clip):
         cropped_clip = crop(clip, width=clip.w, height=new_h, y_center=y_center)
     return resize(cropped_clip, height=1920, width=1080)
 
-# ================= 🧠 العقل المزدوج (Gemini المستقر + Groq) =================
+# ================= 🧠 العقول الأربعة للقص الذكي =================
 def get_smart_timestamps(transcript_segments, max_duration):
     if not transcript_segments: return None, None, "لم يتم استخراج نص."
 
     full_text_with_time = "".join([f"[{seg.start:.2f} - {seg.end:.2f}]: {seg.text}\n" for seg in transcript_segments])
-
     prompt = f"""أنت خبير في المونتاج القرآني.
 أمامك نص تلاوة مع التوقيت الزمني (بالثواني).
 اختر نقطة بداية ونقطة نهاية بحيث تبدأ بآية وتنتهي بآية تامة المعنى. يجب أن يكون طول المقطع بين 40 و 58 ثانية.
-
 النص:
 {full_text_with_time}
-
 الرد يجب أن يكون فقط مصفوفة أرقام بهذا الشكل بالضبط:
 [15.5, 65.2]
 يُمنع منعاً باتاً كتابة أي حرف إضافي.
 """
     
-    # 1️⃣ Gemini (بمسار مستقر لتجنب 404)
+    # 1️⃣ القائد: ChatGPT (OpenAI)
+    if OPENAI_API_KEY:
+        try:
+            print("🧠 جاري محاولة القص عبر القائد الأساسي (ChatGPT)...")
+            api_url = "https://api.openai.com/v1/chat/completions"
+            headers = {"Content-Type": "application/json", "Authorization": f"Bearer {OPENAI_API_KEY}"}
+            payload = {"model": "gpt-3.5-turbo", "messages": [{"role": "user", "content": prompt}], "temperature": 0.0}
+            response = requests.post(api_url, json=payload, headers=headers, timeout=30)
+            
+            if response.status_code == 200:
+                text_response = response.json()['choices'][0]['message']['content']
+                print(f"🤖 رد ChatGPT: {text_response.strip()}")
+                nums = re.findall(r'[0-9]+(?:\.[0-9]+)?', text_response)
+                if len(nums) >= 2: return float(nums[0]), float(nums[1]), None
+            else:
+                print(f"⚠️ فشل ChatGPT (الكود: {response.status_code}). سيتم الانتقال للبديل.")
+        except Exception as e: print(f"⚠️ خطأ في ChatGPT: {e}")
+
+    # 2️⃣ البديل الأول: Gemini 1.5 Flash (تم تصحيح المسار)
     if GEMINI_API_KEY:
         try:
-            print("🧠 جاري محاولة القص عبر (Gemini)...")
-            api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+            print("🧠 جاري محاولة القص عبر البديل الأول (Gemini)...")
+            api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={GEMINI_API_KEY}"
             payload = {
                 "contents": [{"parts": [{"text": prompt}]}], 
                 "generationConfig": {"temperature": 0.0},
@@ -119,44 +134,31 @@ def get_smart_timestamps(transcript_segments, max_duration):
                 ]
             }
             response = requests.post(api_url, json=payload, headers={'Content-Type': 'application/json'}, timeout=30)
-            
             if response.status_code == 200:
                 text_response = response.json()['candidates'][0]['content']['parts'][0]['text']
                 print(f"🤖 رد Gemini: {text_response.strip()}")
                 nums = re.findall(r'[0-9]+(?:\.[0-9]+)?', text_response)
-                if len(nums) >= 2:
-                    return float(nums[0]), float(nums[1]), None
+                if len(nums) >= 2: return float(nums[0]), float(nums[1]), None
             else:
                 print(f"⚠️ فشل Gemini (الكود: {response.status_code}).")
-        except Exception as e:
-            print(f"⚠️ خطأ في Gemini: {e}")
+        except Exception as e: print(f"⚠️ خطأ في Gemini: {e}")
 
-    # 2️⃣ Groq (سيعمل الآن بعد إضافته لملف الـ yml)
+    # 3️⃣ البديل الثاني: Groq (تم تغيير النسخة لـ 8b لتجنب قيود الحساب المجاني)
     if GROQ_API_KEY:
         try:
-            print("🔄 تفعيل المحرك الاحتياطي المفتوح المصدر (Groq - Llama 3)...")
+            print("🔄 تفعيل المحرك الاحتياطي الثالث (Groq - Llama 3 8B)...")
             groq_url = "https://api.groq.com/openai/v1/chat/completions"
-            headers = {
-                "Authorization": f"Bearer {GROQ_API_KEY}",
-                "Content-Type": "application/json"
-            }
-            payload = {
-                "model": "llama3-70b-8192",
-                "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.0
-            }
+            headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
+            payload = {"model": "llama3-8b-8192", "messages": [{"role": "user", "content": prompt}], "temperature": 0.1}
             response = requests.post(groq_url, json=payload, headers=headers, timeout=30)
-            
             if response.status_code == 200:
                 text_response = response.json()['choices'][0]['message']['content']
                 print(f"🤖 رد Groq: {text_response.strip()}")
                 nums = re.findall(r'[0-9]+(?:\.[0-9]+)?', text_response)
-                if len(nums) >= 2:
-                    return float(nums[0]), float(nums[1]), None
+                if len(nums) >= 2: return float(nums[0]), float(nums[1]), None
             else:
                 print(f"❌ فشل Groq (الكود: {response.status_code}).")
-        except Exception as e:
-            print(f"❌ خطأ في Groq: {e}")
+        except Exception as e: print(f"❌ خطأ في Groq: {e}")
 
     return None, None, "فشلت جميع محركات الذكاء الاصطناعي."
 
@@ -178,8 +180,7 @@ def get_mp3quran_live_url(reciter_name, surah_number):
                         if not server_url.endswith('/'): server_url += '/'
                         final_url = f"{server_url}{surah_number:03d}.mp3"
                         return final_url
-    except Exception as e:
-        print(f"❌ فشل الاتصال بـ MP3Quran API: {e}")
+    except Exception as e: print(f"❌ فشل الاتصال بـ MP3Quran API: {e}")
     return None
 
 def download_url_safe(url, ext="mp3"):
@@ -224,14 +225,12 @@ def fetch_audio_dynamic():
     }
     
     try:
-        with YoutubeDL(ydl_opts) as ydl_dl:
-            ydl_dl.download([search_query])
+        with YoutubeDL(ydl_opts) as ydl_dl: ydl_dl.download([search_query])
         files = glob.glob("raw_audio_sc.*")
         if files and is_valid_audio(files[0]):
             downloaded_file = files[0]
             print("✅ تم السحب من SoundCloud بنجاح!")
-    except Exception as e:
-        print(f"⚠️ تحذير: فشل SoundCloud: {e}")
+    except Exception as e: print(f"⚠️ تحذير: فشل SoundCloud: {e}")
 
     if not downloaded_file:
         print("🔄 تحويل مسار الهجوم إلى المحرك الديناميكي (MP3Quran API)...")
@@ -245,11 +244,9 @@ def fetch_audio_dynamic():
             if downloaded_file:
                 selected_reciter = backup_reciter
                 print("✅ تم السحب من سيرفرات MP3Quran بنجاح!")
-        else:
-            print("❌ لم يتم العثور على القارئ أو السورة.")
+        else: print("❌ لم يتم العثور على القارئ أو السورة.")
 
-    if not downloaded_file:
-        raise Exception("🚨 فشل كلا المحركين.")
+    if not downloaded_file: raise Exception("🚨 فشل كلا المحركين.")
 
     print("🧠 جاري تحليل الصوت وإجراء القص الذكي (Time-Jumping)...")
     full_audio = AudioFileClip(downloaded_file)
@@ -283,8 +280,8 @@ def fetch_audio_dynamic():
         else:
             rel_start, rel_end = 0.0, min(50.0, analysis_subclip.duration)
 
-    # ✅ التعديل السحري لحماية نهاية الآية: إضافة هامش أمان 2 ثانية
-    rel_end = min(rel_end + 2.0, analysis_subclip.duration)
+    # 🛡️ هامش أمان 2.5 ثانية لحماية نهاية الآية من التلاشي المبكر
+    rel_end = min(rel_end + 2.5, analysis_subclip.duration)
 
     absolute_start = start_time_for_clip + rel_start
     absolute_end = start_time_for_clip + rel_end
@@ -308,14 +305,11 @@ def fetch_pexels_videos(target_duration):
     video_files, current_duration = [], 0
     for video in res_data['videos']:
         if any(t in str(video['tags']).lower() for t in ['people', 'woman', 'face']): continue
-        
         vid_data = requests.get(video['video_files'][0]['link']).content
         vid_name = f"bg_{video['id']}.mp4"
         with open(vid_name, "wb") as f: f.write(vid_data)
-        
         clip = VideoFileClip(vid_name)
         vertical_clip = crop_to_vertical(clip)
-        
         video_files.append((vertical_clip, vid_name))
         current_duration += vertical_clip.duration
         if current_duration >= target_duration: break
