@@ -280,8 +280,8 @@ def fetch_audio_dynamic():
 
     # 🛡️ التعديل الهندسي الصوتي الجديد 🛡️
     # 1. نأخذ نقطة البداية كما هي بالضبط بدون تراجع
-    # 2. نضيف 1 ثواني كاملة للنهاية لضمان التقاط صدى الصوت وآخر حرف
-    rel_end = min(rel_end + 1.0, analysis_subclip.duration)
+    # 2. نضيف 3 ثواني كاملة للنهاية لضمان التقاط صدى الصوت وآخر حرف
+    rel_end = min(rel_end + 3.0, analysis_subclip.duration)
 
     absolute_start = start_time_for_clip + rel_start
     absolute_end = start_time_for_clip + rel_end
