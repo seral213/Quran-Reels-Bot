@@ -1,12 +1,8 @@
 name: Auto Quran Reels Studio
 
-# ⏰ متى يشتغل البوت؟
 on:
   schedule:
-    # يشتغل تلقائياً كل يوم الساعة 12:00 ظهراً بتوقيت جرينتش (حوالي 3:00 عصراً بتوقيت اليمن/مكة)
     - cron: '0 12 * * *'
-  
-  # هذا الأمر يضيف لك زر "Run workflow" لتشغيله يدوياً في أي وقت
   workflow_dispatch:
 
 jobs:
@@ -22,17 +18,21 @@ jobs:
       with:
         python-version: '3.10'
 
+    - name: 🛠️ إصلاح سياسات ImageMagick (للكتابة على الفيديو)
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y imagemagick
+        # هذا السطر يخترق حماية السيرفر ويسمح بكتابة النصوص
+        sudo sed -i 's/none/read,write/g' /etc/ImageMagick-6/policy.xml
+
     - name: ⚙️ تثبيت المكتبات الأساسية
       run: |
         python -m pip install --upgrade pip
-        # تثبيت المكتبات من ملف المتطلبات (إذا كان موجوداً)
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-        # تثبيت إجباري للمكتبات لضمان عدم نقص أي منها
         pip install yt-dlp faster-whisper moviepy instagrapi arabic-reshaper python-bidi Pillow numpy requests
 
     - name: 🎬 تشغيل استوديو المونتاج والنشر
       env:
-        # هنا يتم سحب المفاتيح السرية وتمريرها للكود
         PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
         IG_USERNAME: ${{ secrets.IG_USERNAME }}
         IG_PASSWORD: ${{ secrets.IG_PASSWORD }}
@@ -48,6 +48,5 @@ jobs:
         git config --global user.name "GitHub Actions Bot"
         git config --global user.email "actions@github.com"
         git add session.json
-        # هذا السطر يرفع ملف الجلسة لجيتهاب لكي يتذكره في اليوم التالي
         git commit -m "تحديث جلسة إنستجرام الآمنة 🔒" || echo "لا توجد تغييرات في الجلسة"
         git push
