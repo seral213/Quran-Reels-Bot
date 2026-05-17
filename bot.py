@@ -41,9 +41,8 @@ IG_USERNAME = os.environ.get("IG_USERNAME")
 IG_PASSWORD = os.environ.get("IG_PASSWORD")
 ERROR_BOT_TOKEN = os.environ.get("ERROR_BOT_TOKEN")
 ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID")
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+COHERE_API_KEY = os.environ.get("COHERE_API_KEY") # القائد الجديد وحش اللغة العربية
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY") # القائد الجديد
 SESSION_FILE = "session.json"
 
 RECITERS = ["عبدالرحمن مسعد", "ياسر الدوسري", "عبدالله شعبان"]
@@ -85,7 +84,7 @@ def crop_to_vertical(clip):
         cropped_clip = crop(clip, width=clip.w, height=new_h, y_center=y_center)
     return resize(cropped_clip, height=1920, width=1080)
 
-# ================= 🧠 العقول الأربعة للقص الذكي =================
+# ================= 🧠 العقول المجانية المفتوحة =================
 def get_smart_timestamps(transcript_segments, max_duration):
     if not transcript_segments: return None, None, "لم يتم استخراج نص."
 
@@ -100,56 +99,32 @@ def get_smart_timestamps(transcript_segments, max_duration):
 يُمنع منعاً باتاً كتابة أي حرف إضافي.
 """
     
-    # 1️⃣ القائد: ChatGPT (OpenAI)
-    if OPENAI_API_KEY:
+    # 1️⃣ القائد: Cohere (وحش اللغة العربية)
+    if COHERE_API_KEY:
         try:
-            print("🧠 جاري محاولة القص عبر القائد الأساسي (ChatGPT)...")
-            api_url = "https://api.openai.com/v1/chat/completions"
-            headers = {"Content-Type": "application/json", "Authorization": f"Bearer {OPENAI_API_KEY}"}
-            payload = {"model": "gpt-3.5-turbo", "messages": [{"role": "user", "content": prompt}], "temperature": 0.0}
+            print("🧠 جاري محاولة القص عبر القائد (Cohere - Command-R)...")
+            api_url = "https://api.cohere.ai/v1/chat"
+            headers = {"Authorization": f"Bearer {COHERE_API_KEY}", "Content-Type": "application/json"}
+            payload = {"message": prompt, "model": "command-r", "temperature": 0.0}
             response = requests.post(api_url, json=payload, headers=headers, timeout=30)
             
             if response.status_code == 200:
-                text_response = response.json()['choices'][0]['message']['content']
-                print(f"🤖 رد ChatGPT: {text_response.strip()}")
+                text_response = response.json().get('text', '')
+                print(f"🤖 رد Cohere: {text_response.strip()}")
                 nums = re.findall(r'[0-9]+(?:\.[0-9]+)?', text_response)
                 if len(nums) >= 2: return float(nums[0]), float(nums[1]), None
             else:
-                print(f"⚠️ فشل ChatGPT (الكود: {response.status_code}). سيتم الانتقال للبديل.")
-        except Exception as e: print(f"⚠️ خطأ في ChatGPT: {e}")
+                print(f"⚠️ فشل Cohere (الكود: {response.status_code}). سيتم الانتقال للبديل.")
+        except Exception as e: print(f"⚠️ خطأ في Cohere: {e}")
 
-    # 2️⃣ البديل الأول: Gemini 1.5 Flash (تم تصحيح المسار)
-    if GEMINI_API_KEY:
-        try:
-            print("🧠 جاري محاولة القص عبر البديل الأول (Gemini)...")
-            api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={GEMINI_API_KEY}"
-            payload = {
-                "contents": [{"parts": [{"text": prompt}]}], 
-                "generationConfig": {"temperature": 0.0},
-                "safetySettings": [
-                    {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-                    {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-                    {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-                    {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}
-                ]
-            }
-            response = requests.post(api_url, json=payload, headers={'Content-Type': 'application/json'}, timeout=30)
-            if response.status_code == 200:
-                text_response = response.json()['candidates'][0]['content']['parts'][0]['text']
-                print(f"🤖 رد Gemini: {text_response.strip()}")
-                nums = re.findall(r'[0-9]+(?:\.[0-9]+)?', text_response)
-                if len(nums) >= 2: return float(nums[0]), float(nums[1]), None
-            else:
-                print(f"⚠️ فشل Gemini (الكود: {response.status_code}).")
-        except Exception as e: print(f"⚠️ خطأ في Gemini: {e}")
-
-    # 3️⃣ البديل الثاني: Groq (تم تغيير النسخة لـ 8b لتجنب قيود الحساب المجاني)
+    # 2️⃣ البديل: Groq (تم تحديث اسم النموذج ليعمل بدون خطأ 400)
     if GROQ_API_KEY:
         try:
-            print("🔄 تفعيل المحرك الاحتياطي الثالث (Groq - Llama 3 8B)...")
+            print("🔄 تفعيل المحرك الاحتياطي (Groq - Llama 3.1 8B)...")
             groq_url = "https://api.groq.com/openai/v1/chat/completions"
             headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
-            payload = {"model": "llama3-8b-8192", "messages": [{"role": "user", "content": prompt}], "temperature": 0.1}
+            # ✅ تحديث الجيل إلى أحدث نسخة تعمل بكفاءة
+            payload = {"model": "llama-3.1-8b-instant", "messages": [{"role": "user", "content": prompt}], "temperature": 0.0}
             response = requests.post(groq_url, json=payload, headers=headers, timeout=30)
             if response.status_code == 200:
                 text_response = response.json()['choices'][0]['message']['content']
