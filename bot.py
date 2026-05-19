@@ -243,7 +243,7 @@ def fetch_audio_dynamic():
     analysis_subclip = full_audio.subclip(start_time_for_clip, min(start_time_for_clip + 150.0, full_audio.duration))
     analysis_subclip.write_audiofile("temp_analysis.mp3", logger=None)
     
-    model = WhisperModel("base", device="cpu", compute_type="int8")
+    model = WhisperModel("medium", device="cpu", compute_type="int8")
     # 🌟 التعديل هنا: أضفنا initial_prompt لتوجيه الأداة أنها تستمع لقرآن 🌟
     segments, _ = model.transcribe("temp_analysis.mp3", beam_size=5, word_timestamps=True, initial_prompt="بسم الله الرحمن الرحيم. هذه تلاوة قرآن كريم باللغة العربية الفصحى.")
     segments_list = list(segments)
