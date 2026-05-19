@@ -92,23 +92,26 @@ def get_smart_timestamps(transcript_segments, max_duration):
     for index, seg in enumerate(transcript_segments):
         numbered_text += f"السطر [{index}]: {seg.text} (الوقت: {seg.start:.0f} ثانية)\n"
 
-    prompt = f"""أنت خبير في المونتاج القرآني.
-أمامك نص تلاوة مقسم إلى أسطر مرقمة.
+    # 🌟 الـ Prompt العبقري الجديد (ترقية الذكاء الاصطناعي لـ حافظ قرآن) 🌟
+    prompt = f"""أنت خبير في المونتاج وحافظ للقرآن الكريم.
+أمامك نص تلاوة مقسم إلى أسطر. تنبيه هام: الأداة التي استخرجت النص قسمته بناءً على "نَفَس القارئ"، مما يعني أن الآية الواحدة قد تكون مقطعة على عدة أسطر!
+
 مهمتك:
-1. اختر "رقم السطر" الذي يمثل بداية آية واضحة.
-2. اختر "رقم السطر" الذي يمثل نهاية آية تامة المعنى.
+1. ابحث عن سطر يمثل "بداية حقيقية وصحيحة لآية من القرآن" (إياك أن تختار سطراً يمثل تكملة لآية سابقة).
+2. ابحث عن سطر يمثل "نهاية حقيقية لآية تامة المعنى".
 3. يجب أن يكون الفرق الزمني بين السطرين حوالي 45 إلى 55 ثانية.
 
 النص:
 {numbered_text}
 
-يُمنع كتابة أي كلمة أو شرح. أجب فقط برقمي السطرين (البداية والنهاية) بصيغة مصفوفة، هكذا بالضبط:
+أجب فقط برقمي السطرين (البداية والنهاية) بصيغة مصفوفة، هكذا بالضبط:
 [3, 18]
+يُمنع منعاً باتاً كتابة أي حرف أو شرح إضافي.
 """
     
     if COHERE_API_KEY:
         try:
-            print("🧠 جاري محاولة القص عبر القائد (Cohere - Command-R) بتقنية الأسطر...")
+            print("🧠 جاري محاولة القص عبر القائد (Cohere - Command-R)...")
             api_url = "https://api.cohere.com/v1/chat"
             headers = {"Authorization": f"Bearer {COHERE_API_KEY}", "Content-Type": "application/json"}
             payload = {"message": prompt, "model": "command-r", "temperature": 0.0}
@@ -123,13 +126,11 @@ def get_smart_timestamps(transcript_segments, max_duration):
                     end_idx = int(match.group(2))
                     if start_idx < len(transcript_segments) and end_idx < len(transcript_segments):
                         return transcript_segments[start_idx].start, transcript_segments[end_idx].end, None
-            else:
-                print(f"⚠️ فشل Cohere (الكود: {response.status_code}). سيتم الانتقال للبديل.")
         except Exception as e: print(f"⚠️ خطأ في Cohere: {e}")
 
     if GROQ_API_KEY:
         try:
-            print("🔄 تفعيل المحرك الاحتياطي (Groq - Llama 3.1 8B) بتقنية الأسطر...")
+            print("🔄 تفعيل المحرك الاحتياطي (Groq)...")
             groq_url = "https://api.groq.com/openai/v1/chat/completions"
             headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
             payload = {"model": "llama-3.1-8b-instant", "messages": [{"role": "user", "content": prompt}], "temperature": 0.0}
@@ -144,11 +145,9 @@ def get_smart_timestamps(transcript_segments, max_duration):
                     end_idx = int(match.group(2))
                     if start_idx < len(transcript_segments) and end_idx < len(transcript_segments):
                         return transcript_segments[start_idx].start, transcript_segments[end_idx].end, None
-            else:
-                print(f"❌ فشل Groq (الكود: {response.status_code}).")
         except Exception as e: print(f"❌ خطأ في Groq: {e}")
 
-    return None, None, "فشلت جميع محركات الذكاء الاصطناعي في تحديد الأسطر."
+    return None, None, "فشلت محركات الذكاء الاصطناعي."
 
 def fix_arabic(text):
     if not text: return ""
