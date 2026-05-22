@@ -291,13 +291,98 @@ def fetch_audio_dynamic():
                     gap = segments_list[i+1].start - segments_list[i].end
                     if gap > 1.0 and gap > best_gap: 
                         best_gap = gap
+def fetch_audio_dynamic():
+    for f in glob.glob("raw_audio*") + ["temp_analysis.mp3", "final_audio.mp3", "thumb.jpg"]:
+        try: os.remove(f)
+        except: pass
+
+    is_thursday = datetime.now().strftime("%A") == "Thursday"
+    selected_surah_name = "الكهف" if is_thursday else random.choice(list(SURAHS_DICT.keys()))
+    selected_reciter = random.choice(RECITERS)
+    
+    video_title = f"سورة {selected_surah_name}"
+    downloaded_file = None
+
+    search_query = f'"سورة {selected_surah_name}" بصوت "{selected_reciter}"'
+    print(f"🔍 [المحرك 1] جاري البحث في SoundCloud عن: {search_query}")
+    
+    ydl_opts = {
+        'format': 'bestaudio/best', 
+        'outtmpl': 'raw_audio_sc.%(ext)s', 
+        'quiet': True,
+        'default_search': 'scsearch1',
+        'nocheckcertificate': True
+    }
+    
+    try:
+        with YoutubeDL(ydl_opts) as ydl_dl: ydl_dl.download([search_query])
+        files = glob.glob("raw_audio_sc.*")
+        if files and is_valid_audio(files[0]):
+            downloaded_file = files[0]
+            print("✅ تم السحب من SoundCloud بنجاح!")
+    except Exception as e: print(f"⚠️ تحذير: فشل SoundCloud: {e}")
+
+    if not downloaded_file:
+        print("🔄 تحويل مسار الهجوم إلى المحرك الديناميكي (MP3Quran API)...")
+        backup_reciter = random.choice(["عبدالرحمن مسعد", "ياسر الدوسري"]) 
+        surah_number = SURAHS_DICT[selected_surah_name]
+        live_url = get_mp3quran_live_url(backup_reciter, surah_number)
+        
+        if live_url:
+            print(f"🎯 تم توليد الرابط المباشر: {live_url}")
+            downloaded_file = download_url_safe(live_url)
+            if downloaded_file:
+                selected_reciter = backup_reciter
+                print("✅ تم السحب من سيرفرات MP3Quran بنجاح!")
+        else: print("❌ لم يتم العثور على القارئ أو السورة.")
+
+    if not downloaded_file: raise Exception("🚨 فشل كلا المحركين.")
+
+    print("🧠 جاري تحليل الصوت وإجراء القص الذكي (Time-Jumping)...")
+    full_audio = AudioFileClip(downloaded_file)
+    max_start = max(0, full_audio.duration - 180.0) 
+    start_time_for_clip = random.uniform(0.0, max_start)
+    
+    analysis_subclip = full_audio.subclip(start_time_for_clip, min(start_time_for_clip + 150.0, full_audio.duration))
+    analysis_subclip.write_audiofile("temp_analysis.mp3", logger=None)
+    
+    model = WhisperModel("medium", device="cpu", compute_type="int8")
+    segments, _ = model.transcribe("temp_analysis.mp3", beam_size=5, word_timestamps=True, initial_prompt="بسم الله الرحمن الرحيم. هذه تلاوة قرآن كريم باللغة العربية الفصحى.")
+    segments_list = list(segments)
+    try: os.remove("temp_analysis.mp3")
+    except: pass
+
+    clean_segments = []
+    for seg in segments_list:
+        text_clean = seg.text.replace(" ", "") 
+        if "بسمالله" in text_clean or "صدقالله" in text_clean:
+            if len(clean_segments) < 10: 
+                clean_segments = []
+                continue
+            else:
+                break
+        clean_segments.append(seg)
+
+    if len(clean_segments) >= 8:
+        segments_list = clean_segments
+
+    rel_start, rel_end, _ = get_smart_timestamps(segments_list, analysis_subclip.duration)
+    
+    if rel_start is None or rel_end is None:
+        print("⚠️ فشل الذكاء الاصطناعي، تفعيل القص الآلي الدقيق بناءً على النص...")
+        if segments_list:
+            rel_start = segments_list[0].start
+            rel_end = min(rel_start + 55.0, analysis_subclip.duration)
+            best_gap = 0
+            for i in range(len(segments_list) - 1):
+                if segments_list[i].end > (rel_start + 45.0):
+                    gap = segments_list[i+1].start - segments_list[i].end
+                    if gap > 1.0 and gap > best_gap: 
+                        best_gap = gap
                         rel_end = segments_list[i].end + (gap/2)
                         break
         else:
             rel_start, rel_end = 0.0, min(50.0, analysis_subclip.duration)
-
-    # 🛡️ التعديل الهندسي الصوتي الجديد 🛡️
-    rel_end = min(rel_end + 3.0, analysis_subclip.duration)
 
     absolute_start = start_time_for_clip + rel_start
     absolute_end = start_time_for_clip + rel_end
@@ -305,7 +390,8 @@ def fetch_audio_dynamic():
     final_audio_duration = absolute_end - absolute_start
     trimmed_audio = full_audio.subclip(absolute_start, absolute_end)
     
-    final_audio = trimmed_audio.audio_fadein(0.1).audio_fadeout(2.0) 
+    # ✅ Fade-out ذكي وسريع (0.8) بدال 2.0 عشان ما يكتم آخر حرف
+    final_audio = trimmed_audio.audio_fadein(0.1).audio_fadeout(0.8) 
     final_audio.write_audiofile("final_audio.mp3", logger=None)
     
     final_audio.close(); full_audio.close()
