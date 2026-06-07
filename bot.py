@@ -84,7 +84,7 @@ def crop_to_vertical(clip):
         cropped_clip = crop(clip, width=clip.w, height=new_h, y_center=y_center)
     return resize(cropped_clip, height=1920, width=1080)
 
-# ================= 🧠 العقول المجانية (بتقنية ترقيم الأسطر والوزنية الديناميكية) =================
+# ================= 🧠 العقول المجانية (بتقنية ترقيم الأسطر والوزنية الديناميكية بالكلمة) =================
 def get_smart_timestamps(transcript_segments, max_duration):
     if not transcript_segments: return None, None, "لم يتم استخراج نص."
 
@@ -108,16 +108,23 @@ def get_smart_timestamps(transcript_segments, max_duration):
 يُمنع منعاً باتاً كتابة أي حرف أو شرح إضافي.
 """
     
-    # 🌟 الحل العبقري الجديد: قياس المسافة قبل الآية التالية 🌟
     def calculate_safe_end(segments, end_idx):
-        exact_end = segments[end_idx].end
+        if hasattr(segments[end_idx], 'words') and segments[end_idx].words:
+            exact_end = segments[end_idx].words[-1].end
+        else:
+            exact_end = segments[end_idx].end
+
         if end_idx + 1 < len(segments):
-            next_start = segments[end_idx + 1].start
+            if hasattr(segments[end_idx + 1], 'words') and segments[end_idx + 1].words:
+                next_start = segments[end_idx + 1].words[0].start
+            else:
+                next_start = segments[end_idx + 1].start
+            
             gap = next_start - exact_end
-            # ناخذ نصف المسافة بين الآيتين (بحد أقصى 0.8 ثانية) عشان ما نلمس الآية الجديدة
-            safe_padding = min(gap / 2, 0.8) 
+            # تقليل الحشو إلى 0.3 كحد أقصى لأن توقيت الكلمة دقيق جداً ولا يحتاج لمساحة أمان واسعة
+            safe_padding = min(gap / 2, 0.3) 
             return exact_end + safe_padding
-        return exact_end + 0.8
+        return exact_end + 0.3
 
     if COHERE_API_KEY:
         try:
@@ -135,7 +142,8 @@ def get_smart_timestamps(transcript_segments, max_duration):
                     start_idx, end_idx = int(match.group(1)), int(match.group(2))
                     if start_idx < len(transcript_segments) and end_idx < len(transcript_segments):
                         end_time = calculate_safe_end(transcript_segments, end_idx)
-                        return transcript_segments[start_idx].start, end_time, None
+                        start_exact = transcript_segments[start_idx].words[0].start if (hasattr(transcript_segments[start_idx], 'words') and transcript_segments[start_idx].words) else transcript_segments[start_idx].start
+                        return start_exact, end_time, None
         except Exception as e: print(f"⚠️ خطأ في Cohere: {e}")
 
     if GROQ_API_KEY:
@@ -154,7 +162,8 @@ def get_smart_timestamps(transcript_segments, max_duration):
                     start_idx, end_idx = int(match.group(1)), int(match.group(2))
                     if start_idx < len(transcript_segments) and end_idx < len(transcript_segments):
                         end_time = calculate_safe_end(transcript_segments, end_idx)
-                        return transcript_segments[start_idx].start, end_time, None
+                        start_exact = transcript_segments[start_idx].words[0].start if (hasattr(transcript_segments[start_idx], 'words') and transcript_segments[start_idx].words) else transcript_segments[start_idx].start
+                        return start_exact, end_time, None
         except Exception as e: print(f"❌ خطأ في Groq: {e}")
 
     return None, None, "فشلت محركات الذكاء الاصطناعي."
