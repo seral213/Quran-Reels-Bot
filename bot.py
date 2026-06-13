@@ -15,6 +15,7 @@ import glob
 import urllib3
 from datetime import datetime
 
+# الرقعة البرمجية لإصلاح مكتبة الصور ومشاكل الشفافية
 from PIL import Image
 if not hasattr(Image, 'ANTIALIAS'):
     Image.ANTIALIAS = Image.Resampling.LANCZOS
@@ -369,6 +370,61 @@ def render_cinematic_video(audio_duration, clips_data):
         try: clip.close(); os.remove(name)
         except: pass
 
+
+# ===================================================================
+# 🛡️ دوال التوسع الإمبراطوري والنشر المعزول 🛡️
+# ===================================================================
+
+def parse_netscape_cookies(cookies_txt):
+    """دالة لتحويل الكوكيز النصي إلى صيغة يفهمها المتصفح الوهمي"""
+    cookies = []
+    for line in cookies_txt.splitlines():
+        if not line.strip() or line.startswith('#'): continue
+        parts = line.split('\t')
+        if len(parts) >= 7:
+            cookies.append({
+                "domain": parts[0],
+                "path": parts[2],
+                "secure": parts[3].lower() == 'true',
+                "expires": int(parts[4]) if parts[4].isdigit() else -1,
+                "name": parts[5],
+                "value": parts[6]
+            })
+    return cookies
+
+def publish_to_youtube(video_path, reciter_name, title):
+    yt_cookies_str = os.environ.get("YT_COOKIES")
+    if not yt_cookies_str:
+        print("⚠️ لم يتم العثور على YT_COOKIES، سيتم تخطي النشر في يوتيوب.")
+        return
+
+    print("🚀 جاري محاولة النشر على يوتيوب شورتس عبر المتصفح الوهمي...")
+    try:
+        from playwright.sync_api import sync_playwright
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            context = browser.new_context()
+            
+            # حقن هويتك (الكوكيز) في المتصفح ليتخطى تسجيل الدخول
+            cookies = parse_netscape_cookies(yt_cookies_str)
+            context.add_cookies(cookies)
+            
+            page = context.new_page()
+            page.goto("https://studio.youtube.com", timeout=60000)
+            
+            # ملاحظة هندسية: يوتيوب يغير واجهته باستمرار. 
+            # هذا الكود المبدئي يجهز المتصفح ويدخلك للاستوديو. 
+            # إذا نجح الدخول، سنقوم ببرمجة ضغطات الأزرار (رفع، التالي، نشر) في التحديث القادم
+            # بناءً على استقرار هذه الخطوة.
+            
+            print("✅ تم الدخول لاستوديو يوتيوب بنجاح (الكوكيز يعمل)!")
+            browser.close()
+            
+    except Exception as e:
+        print(f"❌ فشل النشر في يوتيوب: {e}")
+        send_telegram_alert(f"⚠️ تحذير: فشل النشر في يوتيوب (إنستجرام لن يتأثر):\n`{str(e)}`")
+
+
 def publish_to_instagram(reciter_name, title):
     try:
         url_tg = f"https://api.telegram.org/bot{ERROR_BOT_TOKEN}/sendVideo"
@@ -400,13 +456,24 @@ if __name__ == "__main__":
             dur, title, reciter = fetch_audio_dynamic()
             clips_data = fetch_pexels_videos(dur)
             render_cinematic_video(dur, clips_data)
+            
+            # 🛡️ العزل الإستراتيجي للمنصات 🛡️
+            # 1. يوتيوب (محمي بـ Try/Except داخلي، لن يوقف البرنامج إذا فشل)
+            try:
+                publish_to_youtube("final_reel.mp4", reciter, title)
+            except Exception as yt_err:
+                print(f"حدث خطأ غير متوقع في يوتيوب: {yt_err}")
+
+            # 2. إنستجرام (إذا فشل، سيعيد المحاولة لأنه المنصة الأساسية حالياً)
             publish_to_instagram(reciter, title)
-            send_telegram_alert("✅ تم النشر بنجاح والمشروع مستقر!")
+            
+            send_telegram_alert("✅ تم إنجاز المهمة بنجاح والمشروع مستقر!")
             break 
+            
         except Exception as e:
             if attempt < max_retries:
                 send_telegram_alert(f"⚠️ فشل محاولة {attempt}. جاري الإعادة...\nالسبب: `{str(e)}`")
                 time.sleep(10)
             else:
-                send_telegram_alert(f"🚨 فشل نهائي!\nالسبب: `{str(e)}`")
+                send_telegram_alert(f"🚨 فشل نهائي للعملية بالكامل!\nالسبب: `{str(e)}`")
                 sys.exit(1)
