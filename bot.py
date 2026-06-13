@@ -398,28 +398,64 @@ def publish_to_youtube(video_path, reciter_name, title):
         print("⚠️ لم يتم العثور على YT_COOKIES، سيتم تخطي النشر في يوتيوب.")
         return
 
-    print("🚀 جاري محاولة النشر على يوتيوب شورتس عبر المتصفح الوهمي...")
+    print("🚀 جاري النشر على يوتيوب شورتس عبر المتصفح الوهمي...")
     try:
         from playwright.sync_api import sync_playwright
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
             context = browser.new_context()
             
-            # حقن هويتك (الكوكيز) في المتصفح ليتخطى تسجيل الدخول
+            # حقن الكوكيز
             cookies = parse_netscape_cookies(yt_cookies_str)
             context.add_cookies(cookies)
             
             page = context.new_page()
-            page.goto("https://studio.youtube.com", timeout=60000)
             
-            # ملاحظة هندسية: يوتيوب يغير واجهته باستمرار. 
-            # هذا الكود المبدئي يجهز المتصفح ويدخلك للاستوديو. 
-            # إذا نجح الدخول، سنقوم ببرمجة ضغطات الأزرار (رفع، التالي، نشر) في التحديث القادم
-            # بناءً على استقرار هذه الخطوة.
+            # 🌟 خدعة العباقرة: إجبار يوتيوب على اللغة الإنجليزية لتثبيت أماكن الأزرار
+            page.goto("https://studio.youtube.com/?hl=en", timeout=60000)
+            page.wait_for_load_state("networkidle")
+            print("✅ تم الدخول، جاري رفع الفيديو...")
             
-            print("✅ تم الدخول لاستوديو يوتيوب بنجاح (الكوكيز يعمل)!")
+            # النقر على زر (إنشاء Create) ثم (رفع فيديو Upload videos)
+            page.locator("#create-icon").click()
+            page.locator("tp-yt-paper-item").first.click()
+            
+            # إرسال ملف الفيديو المخفي
+            page.locator("input[type='file']").set_input_files(video_path)
+            
+            print("⏳ جاري تعبئة البيانات والانتظار...")
+            # انتظار ظهور نافذة التفاصيل
+            page.wait_for_selector("ytcp-video-metadata-basics", timeout=90000)
+            
+            # تعبئة العنوان (مهم جداً وضع #shorts لخوارزمية يوتيوب)
+            yt_title = f"تلاوة عذبة تريح القلب - القارئ {reciter_name} 🤍 #shorts"
+            page.locator("#title-textarea #textbox").fill(yt_title)
+            
+            # تعبئة الوصف
+            yt_desc = f"أرح مسمعك وعافية لقلبك بتلاوة القارئ {reciter_name}\n\n#قرآن #تلاوة #راحة_نفسية #shorts"
+            page.locator("#description-textarea #textbox").fill(yt_desc)
+            
+            # تحديد "ليس مخصصاً للأطفال" لتفعيل التعليقات
+            page.locator("tp-yt-paper-radio-button[name='VIDEO_MADE_FOR_KIDS_NOT_MFK']").click()
+            
+            # تخطي النوافذ (التفاصيل، العناصر، الفحص) بضغط زر "Next" 3 مرات
+            for _ in range(3):
+                page.locator("#next-button").click()
+                page.wait_for_timeout(1500) # انتظار بسيط لتحديث النافذة
+            
+            # اختيار النشر كـ (عام Public)
+            page.locator("tp-yt-paper-radio-button[name='PUBLIC']").click()
+            
+            print("🚀 جاري تأكيد النشر النهائي...")
+            page.locator("#done-button").click()
+            
+            # الانتظار حتى تنتهي المعالجة ويظهر زر الإغلاق بنجاح
+            page.wait_for_selector("ytcp-button#close-button", timeout=120000)
+            
+            print("🎉 تم نشر الشورتس على يوتيوب بنجاح!")
             browser.close()
-            
+            send_telegram_alert(f"✅ تم النشر في يوتيوب شورتس بنجاح!\nالقارئ: {reciter_name}")
+
     except Exception as e:
         print(f"❌ فشل النشر في يوتيوب: {e}")
         send_telegram_alert(f"⚠️ تحذير: فشل النشر في يوتيوب (إنستجرام لن يتأثر):\n`{str(e)}`")
