@@ -405,51 +405,55 @@ def publish_to_youtube(video_path, reciter_name, title):
             browser = p.chromium.launch(headless=True)
             context = browser.new_context()
             
-            # حقن الكوكيز
+            # ✅ زيادة الوقت الافتراضي للمتصفح إلى 90 ثانية بدلاً من 30
+            context.set_default_timeout(90000) 
+            
             cookies = parse_netscape_cookies(yt_cookies_str)
             context.add_cookies(cookies)
             
             page = context.new_page()
             
-            # 🌟 خدعة العباقرة: إجبار يوتيوب على اللغة الإنجليزية لتثبيت أماكن الأزرار
-            page.goto("https://studio.youtube.com/?hl=en", timeout=60000)
+            print("🌐 جاري الدخول لاستوديو يوتيوب...")
+            page.goto("https://studio.youtube.com/?hl=en", timeout=120000)
             page.wait_for_load_state("networkidle")
-            print("✅ تم الدخول، جاري رفع الفيديو...")
             
-            # النقر على زر (إنشاء Create) ثم (رفع فيديو Upload videos)
+            # تأخير بسيط لضمان اختفاء أي نوافذ ترحيبية من يوتيوب
+            page.wait_for_timeout(3000) 
+            
+            print("✅ تم الدخول، جاري البحث عن زر الرفع...")
+            page.wait_for_selector("#create-icon", state="visible")
             page.locator("#create-icon").click()
+            
+            page.wait_for_selector("tp-yt-paper-item", state="visible")
             page.locator("tp-yt-paper-item").first.click()
             
-            # إرسال ملف الفيديو المخفي
+            print("📂 جاري إرفاق الفيديو...")
+            page.wait_for_selector("input[type='file']", state="attached")
             page.locator("input[type='file']").set_input_files(video_path)
             
             print("⏳ جاري تعبئة البيانات والانتظار...")
-            # انتظار ظهور نافذة التفاصيل
-            page.wait_for_selector("ytcp-video-metadata-basics", timeout=90000)
+            page.wait_for_selector("#title-textarea #textbox", state="visible", timeout=90000)
             
-            # تعبئة العنوان (مهم جداً وضع #shorts لخوارزمية يوتيوب)
             yt_title = f"تلاوة عذبة تريح القلب - القارئ {reciter_name} 🤍 #shorts"
             page.locator("#title-textarea #textbox").fill(yt_title)
             
-            # تعبئة الوصف
             yt_desc = f"أرح مسمعك وعافية لقلبك بتلاوة القارئ {reciter_name}\n\n#قرآن #تلاوة #راحة_نفسية #shorts"
             page.locator("#description-textarea #textbox").fill(yt_desc)
             
-            # تحديد "ليس مخصصاً للأطفال" لتفعيل التعليقات
             page.locator("tp-yt-paper-radio-button[name='VIDEO_MADE_FOR_KIDS_NOT_MFK']").click()
             
-            # تخطي النوافذ (التفاصيل، العناصر، الفحص) بضغط زر "Next" 3 مرات
+            print("⏭️ جاري تخطي النوافذ...")
             for _ in range(3):
                 page.locator("#next-button").click()
-                page.wait_for_timeout(1500) # انتظار بسيط لتحديث النافذة
+                page.wait_for_timeout(2000) 
             
-            # اختيار النشر كـ (عام Public)
+            page.wait_for_selector("tp-yt-paper-radio-button[name='PUBLIC']", state="visible")
             page.locator("tp-yt-paper-radio-button[name='PUBLIC']").click()
             
             print("🚀 جاري تأكيد النشر النهائي...")
             page.locator("#done-button").click()
             
-            # الانتظار حتى تنتهي المعالجة ويظهر زر الإغلاق بنجاح
+            # انتظار ظهور زر الإغلاق الذي يعني اكتمال المعالجة والرفع
             page.wait_for_selector("ytcp-button#close-button", timeout=120000)
             
             print("🎉 تم نشر الشورتس على يوتيوب بنجاح!")
@@ -458,8 +462,18 @@ def publish_to_youtube(video_path, reciter_name, title):
 
     except Exception as e:
         print(f"❌ فشل النشر في يوتيوب: {e}")
-        send_telegram_alert(f"⚠️ تحذير: فشل النشر في يوتيوب (إنستجرام لن يتأثر):\n`{str(e)}`")
-
+        try:
+            # 📸 كاميرا التجسس: التقاط صورة للشاشة عند الفشل وإرسالها لتليجرام
+            if 'page' in locals():
+                page.screenshot(path="yt_error.png")
+                url_tg = f"https://api.telegram.org/bot{ERROR_BOT_TOKEN}/sendPhoto"
+                with open('yt_error.png', 'rb') as photo:
+                    caption_text = f"⚠️ فشل يوتيوب (هذا ما يراه المتصفح الوهمي الآن):\n{str(e)[:150]}"
+                    requests.post(url_tg, data={'chat_id': ADMIN_CHAT_ID, 'caption': caption_text}, files={'photo': photo})
+            else:
+                send_telegram_alert(f"⚠️ تحذير: فشل النشر في يوتيوب:\n`{str(e)[:200]}`")
+        except: 
+            pass # تجنب توقف الكود إذا فشل إرسال الصورة
 
 def publish_to_instagram(reciter_name, title):
     try:
