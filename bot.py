@@ -60,6 +60,15 @@ def send_telegram_alert(message):
     try: requests.post(url, data=payload)
     except: pass
 
+def send_telegram_photo(photo_path, caption=""):
+    """دالة مستقلة ومحصنة لإرسال الصور (كاميرا التجسس)"""
+    if not ERROR_BOT_TOKEN or not ADMIN_CHAT_ID or not os.path.exists(photo_path): return
+    url = f"https://api.telegram.org/bot{ERROR_BOT_TOKEN}/sendPhoto"
+    try:
+        with open(photo_path, 'rb') as photo:
+            requests.post(url, data={'chat_id': ADMIN_CHAT_ID, 'caption': caption}, files={'photo': photo}, timeout=30)
+    except Exception as e: print(f"فشل إرسال الصورة لتليجرام: {e}")
+
 def is_valid_audio(filepath):
     try:
         if not os.path.exists(filepath): return False
@@ -84,50 +93,45 @@ def crop_to_vertical(clip):
         cropped_clip = crop(clip, width=clip.w, height=new_h, y_center=y_center)
     return resize(cropped_clip, height=1920, width=1080)
 
-# ================= 🧠 العقول المجانية (بالصدى الديناميكي والوقت المخصص) =================
+# ================= 🧠 العقول المجانية (قص دقيق للآيات وإجبار للوقت) =================
 def get_smart_timestamps(transcript_segments, max_duration):
-    if not transcript_segments: return None, None, 0.5
+    if not transcript_segments: return None, None
 
     numbered_text = ""
     for index, seg in enumerate(transcript_segments):
         numbered_text += f"السطر [{index}]: {seg.text} (الوقت: {seg.start:.0f} ثانية)\n"
 
-    # ✅ تعديل الوقت ليكون 30-45 ثانية لدعم خوارزميات الريلز
-    prompt = f"""أنت خبير في المونتاج وحافظ للقرآن الكريم.
-أمامك نص تلاوة مقسم إلى أسطر. تنبيه هام: الأداة التي استخرجت النص قسمته بناءً على "نَفَس القارئ"، مما يعني أن الآية الواحدة قد تكون مقطعة على عدة أسطر!
+    # 🌟 التوجيه الصارم: آيات دقيقة + وقت محدد
+    prompt = f"""أنت مخرج فيديو قرآني محترف.
+مهمتك اختيار بداية ونهاية لمقطع فيديو (ريلز). الأسطر التالية مقطعة بناءً على نَفَس القارئ.
 
-مهمتك:
-1. ابحث عن سطر يمثل "بداية حقيقية وصحيحة لآية من القرآن" (إياك أن تختار سطراً يمثل تكملة لآية سابقة).
-2. ابحث عن سطر يمثل "نهاية حقيقية لآية تامة المعنى".
-3. يجب أن يكون الفرق الزمني بين السطرين حوالي 30 إلى 45 ثانية بدقة.
+شروطك الصارمة جداً:
+1. السطر الأول يجب أن يكون بداية آية جديدة (ليس تكملة آية سابقة).
+2. السطر الأخير يجب أن يكون نهاية آية (يقف القارئ وتكتمل المعاني).
+3. القاعدة الذهبية: فرق الوقت بين البداية والنهاية يجب أن يكون بين 30 ثانية و 45 ثانية فقط! (يُمنع تجاوز 48 ثانية نهائياً).
 
 النص:
 {numbered_text}
 
-أجب فقط برقمي السطرين (البداية والنهاية) بصيغة مصفوفة، هكذا بالضبط:
-[3, 18]
-يُمنع منعاً باتاً كتابة أي حرف أو شرح إضافي.
+أجب فقط برقمي السطرين بصيغة مصفوفة:
+[البداية, النهاية]
 """
     
-    # 🌟 خوارزمية قياس الصدى الديناميكي 🌟
-    def calculate_safe_end(segments, end_idx):
-        if hasattr(segments[end_idx], 'words') and segments[end_idx].words:
-            exact_end = segments[end_idx].words[-1].end
-        else:
-            exact_end = segments[end_idx].end
+    start_time = None
+    end_time = None
 
-        if end_idx + 1 < len(segments):
-            if hasattr(segments[end_idx + 1], 'words') and segments[end_idx + 1].words:
-                next_start = segments[end_idx + 1].words[0].start
-            else:
-                next_start = segments[end_idx + 1].start
+    def enforce_time_rule(start_idx, end_idx):
+        """القفل الإجباري: يضمن أن الوقت مستحيل يتجاوز 50 ثانية وأن البداية/النهاية دقيقة"""
+        nonlocal start_time, end_time
+        s_time = transcript_segments[start_idx].start
+        e_time = transcript_segments[end_idx].end
+        
+        # إذا كان الذكاء الاصطناعي غبياً وتجاوز 48 ثانية، بايثون سيصلح الخطأ
+        while (e_time - s_time) > 48.0 and end_idx > start_idx:
+            end_idx -= 1
+            e_time = transcript_segments[end_idx].end
             
-            gap = next_start - exact_end
-            # نأخذ الفراغ كامل إلا 0.1 ثانية لحماية الآية التالية، ونحدده كمدة للـ fadeout
-            safe_padding = max(0.1, gap - 0.1)
-            fade_dur = min(safe_padding, 1.5)
-            return exact_end + safe_padding, fade_dur
-        return exact_end + 1.5, 1.5
+        return s_time, e_time
 
     if COHERE_API_KEY:
         try:
@@ -139,17 +143,15 @@ def get_smart_timestamps(transcript_segments, max_duration):
             
             if response.status_code == 200:
                 text_response = response.json().get('text', '')
-                print(f"🤖 رد Cohere: {text_response.strip()}")
                 match = re.search(r'\[\s*(\d+)\s*,\s*(\d+)\s*\]', text_response)
                 if match:
                     start_idx, end_idx = int(match.group(1)), int(match.group(2))
                     if start_idx < len(transcript_segments) and end_idx < len(transcript_segments):
-                        end_time, fade_dur = calculate_safe_end(transcript_segments, end_idx)
-                        start_exact = transcript_segments[start_idx].words[0].start if (hasattr(transcript_segments[start_idx], 'words') and transcript_segments[start_idx].words) else transcript_segments[start_idx].start
-                        return start_exact, end_time, fade_dur
+                        start_time, end_time = enforce_time_rule(start_idx, end_idx)
+                        return start_time, end_time
         except Exception as e: print(f"⚠️ خطأ في Cohere: {e}")
 
-    if GROQ_API_KEY:
+    if GROQ_API_KEY and not start_time:
         try:
             print("🔄 تفعيل المحرك الاحتياطي (Groq)...")
             groq_url = "https://api.groq.com/openai/v1/chat/completions"
@@ -159,17 +161,15 @@ def get_smart_timestamps(transcript_segments, max_duration):
             
             if response.status_code == 200:
                 text_response = response.json()['choices'][0]['message']['content']
-                print(f"🤖 رد Groq: {text_response.strip()}")
                 match = re.search(r'\[\s*(\d+)\s*,\s*(\d+)\s*\]', text_response)
                 if match:
                     start_idx, end_idx = int(match.group(1)), int(match.group(2))
                     if start_idx < len(transcript_segments) and end_idx < len(transcript_segments):
-                        end_time, fade_dur = calculate_safe_end(transcript_segments, end_idx)
-                        start_exact = transcript_segments[start_idx].words[0].start if (hasattr(transcript_segments[start_idx], 'words') and transcript_segments[start_idx].words) else transcript_segments[start_idx].start
-                        return start_exact, end_time, fade_dur
+                        start_time, end_time = enforce_time_rule(start_idx, end_idx)
+                        return start_time, end_time
         except Exception as e: print(f"❌ خطأ في Groq: {e}")
 
-    return None, None, 0.8
+    return None, None
 
 def fix_arabic(text):
     if not text: return ""
@@ -177,7 +177,7 @@ def fix_arabic(text):
     return get_display(reshaper.reshape(f" {text} "))
 
 def get_mp3quran_live_url(reciter_name, surah_number):
-    print("📡 جاري الاتصال بقاعدة بيانات MP3Quran لاستخراج الرابط الحي المحدث...")
+    print("📡 جاري الاتصال بقاعدة بيانات MP3Quran...")
     api_url = "https://mp3quran.net/api/v3/reciters?language=ar"
     try:
         res = requests.get(api_url, timeout=15, verify=False).json()
@@ -187,9 +187,8 @@ def get_mp3quran_live_url(reciter_name, surah_number):
                     server_url = moshaf.get('server', '')
                     if server_url:
                         if not server_url.endswith('/'): server_url += '/'
-                        final_url = f"{server_url}{surah_number:03d}.mp3"
-                        return final_url
-    except Exception as e: print(f"❌ فشل الاتصال بـ MP3Quran API: {e}")
+                        return f"{server_url}{surah_number:03d}.mp3"
+    except: pass
     return None
 
 def download_url_safe(url, ext="mp3"):
@@ -223,41 +222,24 @@ def fetch_audio_dynamic():
     downloaded_file = None
 
     search_query = f'"سورة {selected_surah_name}" بصوت "{selected_reciter}"'
-    print(f"🔍 [المحرك 1] جاري البحث في SoundCloud عن: {search_query}")
-    
-    ydl_opts = {
-        'format': 'bestaudio/best', 
-        'outtmpl': 'raw_audio_sc.%(ext)s', 
-        'quiet': True,
-        'default_search': 'scsearch1',
-        'nocheckcertificate': True
-    }
+    ydl_opts = {'format': 'bestaudio/best', 'outtmpl': 'raw_audio_sc.%(ext)s', 'quiet': True, 'default_search': 'scsearch1', 'nocheckcertificate': True}
     
     try:
         with YoutubeDL(ydl_opts) as ydl_dl: ydl_dl.download([search_query])
         files = glob.glob("raw_audio_sc.*")
         if files and is_valid_audio(files[0]):
             downloaded_file = files[0]
-            print("✅ تم السحب من SoundCloud بنجاح!")
-    except Exception as e: print(f"⚠️ تحذير: فشل SoundCloud: {e}")
+    except: pass
 
     if not downloaded_file:
-        print("🔄 تحويل مسار الهجوم إلى المحرك الديناميكي (MP3Quran API)...")
         backup_reciter = random.choice(["عبدالرحمن مسعد", "ياسر الدوسري"]) 
-        surah_number = SURAHS_DICT[selected_surah_name]
-        live_url = get_mp3quran_live_url(backup_reciter, surah_number)
-        
+        live_url = get_mp3quran_live_url(backup_reciter, SURAHS_DICT[selected_surah_name])
         if live_url:
-            print(f"🎯 تم توليد الرابط المباشر: {live_url}")
             downloaded_file = download_url_safe(live_url)
-            if downloaded_file:
-                selected_reciter = backup_reciter
-                print("✅ تم السحب من سيرفرات MP3Quran بنجاح!")
-        else: print("❌ لم يتم العثور على القارئ أو السورة.")
+            if downloaded_file: selected_reciter = backup_reciter
 
     if not downloaded_file: raise Exception("🚨 فشل كلا المحركين.")
 
-    print("🧠 جاري تحليل الصوت وإجراء القص الذكي (Time-Jumping)...")
     full_audio = AudioFileClip(downloaded_file)
     max_start = max(0, full_audio.duration - 180.0) 
     start_time_for_clip = random.uniform(0.0, max_start)
@@ -266,7 +248,7 @@ def fetch_audio_dynamic():
     analysis_subclip.write_audiofile("temp_analysis.mp3", logger=None)
     
     model = WhisperModel("medium", device="cpu", compute_type="int8")
-    segments, _ = model.transcribe("temp_analysis.mp3", beam_size=5, word_timestamps=True, initial_prompt="بسم الله الرحمن الرحيم. هذه تلاوة قرآن كريم باللغة العربية الفصحى.")
+    segments, _ = model.transcribe("temp_analysis.mp3", beam_size=5, word_timestamps=True, initial_prompt="بسم الله الرحمن الرحيم. تلاوة قرآن.")
     segments_list = list(segments)
     try: os.remove("temp_analysis.mp3")
     except: pass
@@ -278,30 +260,17 @@ def fetch_audio_dynamic():
             if len(clean_segments) < 10: 
                 clean_segments = []
                 continue
-            else:
-                break
+            else: break
         clean_segments.append(seg)
+    if len(clean_segments) >= 8: segments_list = clean_segments
 
-    if len(clean_segments) >= 8:
-        segments_list = clean_segments
-
-    # ✅ استقبال المتغير الثالث الجديد (fade_dur)
-    rel_start, rel_end, fade_dur = get_smart_timestamps(segments_list, analysis_subclip.duration)
+    rel_start, rel_end = get_smart_timestamps(segments_list, analysis_subclip.duration)
     
     if rel_start is None or rel_end is None:
-        print("⚠️ فشل الذكاء الاصطناعي، تفعيل القص الآلي الدقيق بناءً على النص...")
-        fade_dur = 0.8
         if segments_list:
             rel_start = segments_list[0].start
-            rel_end = min(rel_start + 45.0, analysis_subclip.duration)
-            best_gap = 0
-            for i in range(len(segments_list) - 1):
-                if segments_list[i].end > (rel_start + 35.0):
-                    gap = segments_list[i+1].start - segments_list[i].end
-                    if gap > 1.0 and gap > best_gap: 
-                        best_gap = gap
-                        rel_end = segments_list[i].end + (gap/2)
-                        break
+            # الإجباري: 40 ثانية كحد أقصى للقص اليدوي
+            rel_end = min(rel_start + 40.0, analysis_subclip.duration)
         else:
             rel_start, rel_end = 0.0, min(40.0, analysis_subclip.duration)
 
@@ -311,8 +280,8 @@ def fetch_audio_dynamic():
     final_audio_duration = absolute_end - absolute_start
     trimmed_audio = full_audio.subclip(absolute_start, absolute_end)
     
-    # ✅ تطبيق الـ fadeout الديناميكي المحسوب بدقة
-    final_audio = trimmed_audio.audio_fadein(0.1).audio_fadeout(fade_dur) 
+    # تلاشي بسيط جداً (0.4) حتى لا يأكل الحرف الأخير
+    final_audio = trimmed_audio.audio_fadein(0.1).audio_fadeout(0.4) 
     final_audio.write_audiofile("final_audio.mp3", logger=None)
     
     final_audio.close(); full_audio.close()
@@ -344,16 +313,13 @@ def render_cinematic_video(audio_duration, clips_data):
     final_video = concatenate_videoclips(clips, method="compose").subclip(0, audio_duration)
     dark_overlay = ColorClip(size=(1080, 1920), color=(0,0,0)).set_opacity(0.3).set_duration(audio_duration)
     
-    # 🌟 الهوك البصري (تأثير النيون / اللمبة المعطلة) 🌟
     txt_base = TextClip(fix_arabic("عافية قلب"), font="taj.ttf", fontsize=45, color='white', stroke_color='black', stroke_width=2, method='caption', size=(900, None), align='center').set_position('center')
     
-    # تقطيع النص ليظهر ويختفي بسرعات متفاوتة في أول ثانية
     t1 = txt_base.set_start(0.0).set_duration(0.15)
     t2 = txt_base.set_start(0.25).set_duration(0.1)
     t3 = txt_base.set_start(0.5).set_duration(0.15)
-    t4 = txt_base.set_start(0.8).set_duration(audio_duration - 0.8) # يثبت للنهاية
+    t4 = txt_base.set_start(0.8).set_duration(audio_duration - 0.8) 
     
-    # دمج طبقات الهوك البصري مع الفيديو
     video_with_audio = CompositeVideoClip([final_video, dark_overlay, t1, t2, t3, t4], size=(1080, 1920))
     video_with_audio = video_with_audio.fadein(1.0).fadeout(1.5)
     
@@ -370,79 +336,55 @@ def render_cinematic_video(audio_duration, clips_data):
         try: clip.close(); os.remove(name)
         except: pass
 
-
-# ===================================================================
-# 🛡️ دوال التوسع الإمبراطوري والنشر المعزول 🛡️
-# ===================================================================
-
 def parse_netscape_cookies(cookies_txt):
-    """دالة لتحويل الكوكيز النصي إلى صيغة يفهمها المتصفح الوهمي"""
     cookies = []
     for line in cookies_txt.splitlines():
         if not line.strip() or line.startswith('#'): continue
         parts = line.split('\t')
         if len(parts) >= 7:
             cookies.append({
-                "domain": parts[0],
-                "path": parts[2],
-                "secure": parts[3].lower() == 'true',
-                "expires": int(parts[4]) if parts[4].isdigit() else -1,
-                "name": parts[5],
-                "value": parts[6]
+                "domain": parts[0], "path": parts[2], "secure": parts[3].lower() == 'true',
+                "expires": int(parts[4]) if parts[4].isdigit() else -1, "name": parts[5], "value": parts[6]
             })
     return cookies
 
 def publish_to_youtube(video_path, reciter_name, title):
     yt_cookies_str = os.environ.get("YT_COOKIES")
-    if not yt_cookies_str:
-        print("⚠️ لم يتم العثور على YT_COOKIES، سيتم تخطي النشر في يوتيوب.")
-        return
+    if not yt_cookies_str: return
 
     print("🚀 جاري النشر على يوتيوب شورتس عبر المتصفح الوهمي...")
+    page = None # تعريف المتغير خارج الـ try لتستطيع كاميرا التجسس التقاطه
     try:
         from playwright.sync_api import sync_playwright
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
             context = browser.new_context()
-            
-            # ✅ زيادة الوقت الافتراضي للمتصفح إلى 90 ثانية بدلاً من 30
-            context.set_default_timeout(90000) 
+            context.set_default_timeout(60000) 
             
             cookies = parse_netscape_cookies(yt_cookies_str)
             context.add_cookies(cookies)
             
             page = context.new_page()
-            
-            print("🌐 جاري الدخول لاستوديو يوتيوب...")
-            page.goto("https://studio.youtube.com/?hl=en", timeout=120000)
+            page.goto("https://studio.youtube.com/?hl=en", timeout=90000)
             page.wait_for_load_state("networkidle")
             
-            # تأخير بسيط لضمان اختفاء أي نوافذ ترحيبية من يوتيوب
-            page.wait_for_timeout(3000) 
-            
-            print("✅ تم الدخول، جاري البحث عن زر الرفع...")
+            print("✅ جاري البحث عن زر الرفع...")
             page.wait_for_selector("#create-icon", state="visible")
             page.locator("#create-icon").click()
             
             page.wait_for_selector("tp-yt-paper-item", state="visible")
             page.locator("tp-yt-paper-item").first.click()
             
-            print("📂 جاري إرفاق الفيديو...")
             page.wait_for_selector("input[type='file']", state="attached")
             page.locator("input[type='file']").set_input_files(video_path)
             
-            print("⏳ جاري تعبئة البيانات والانتظار...")
-            page.wait_for_selector("#title-textarea #textbox", state="visible", timeout=90000)
+            print("⏳ جاري تعبئة البيانات...")
+            page.wait_for_selector("#title-textarea #textbox", state="visible", timeout=60000)
             
-            yt_title = f"تلاوة عذبة تريح القلب - القارئ {reciter_name} 🤍 #shorts"
-            page.locator("#title-textarea #textbox").fill(yt_title)
-            
-            yt_desc = f"أرح مسمعك وعافية لقلبك بتلاوة القارئ {reciter_name}\n\n#قرآن #تلاوة #راحة_نفسية #shorts"
-            page.locator("#description-textarea #textbox").fill(yt_desc)
-            
+            page.locator("#title-textarea #textbox").fill(f"تلاوة عذبة تريح القلب - {reciter_name} 🤍 #shorts")
+            page.locator("#description-textarea #textbox").fill(f"أرح مسمعك وعافية لقلبك بتلاوة القارئ {reciter_name}\n\n#قرآن #تلاوة #shorts")
             page.locator("tp-yt-paper-radio-button[name='VIDEO_MADE_FOR_KIDS_NOT_MFK']").click()
             
-            print("⏭️ جاري تخطي النوافذ...")
             for _ in range(3):
                 page.locator("#next-button").click()
                 page.wait_for_timeout(2000) 
@@ -450,10 +392,7 @@ def publish_to_youtube(video_path, reciter_name, title):
             page.wait_for_selector("tp-yt-paper-radio-button[name='PUBLIC']", state="visible")
             page.locator("tp-yt-paper-radio-button[name='PUBLIC']").click()
             
-            print("🚀 جاري تأكيد النشر النهائي...")
             page.locator("#done-button").click()
-            
-            # انتظار ظهور زر الإغلاق الذي يعني اكتمال المعالجة والرفع
             page.wait_for_selector("ytcp-button#close-button", timeout=120000)
             
             print("🎉 تم نشر الشورتس على يوتيوب بنجاح!")
@@ -461,32 +400,24 @@ def publish_to_youtube(video_path, reciter_name, title):
             send_telegram_alert(f"✅ تم النشر في يوتيوب شورتس بنجاح!\nالقارئ: {reciter_name}")
 
     except Exception as e:
-        print(f"❌ فشل النشر في يوتيوب: {e}")
-        try:
-            # 📸 كاميرا التجسس: التقاط صورة للشاشة عند الفشل وإرسالها لتليجرام
-            if 'page' in locals():
+        print(f"❌ فشل يوتيوب: {e}")
+        # 📸 كاميرا التجسس المحسنة 
+        if page:
+            try:
                 page.screenshot(path="yt_error.png")
-                url_tg = f"https://api.telegram.org/bot{ERROR_BOT_TOKEN}/sendPhoto"
-                with open('yt_error.png', 'rb') as photo:
-                    caption_text = f"⚠️ فشل يوتيوب (هذا ما يراه المتصفح الوهمي الآن):\n{str(e)[:150]}"
-                    requests.post(url_tg, data={'chat_id': ADMIN_CHAT_ID, 'caption': caption_text}, files={'photo': photo})
-            else:
-                send_telegram_alert(f"⚠️ تحذير: فشل النشر في يوتيوب:\n`{str(e)[:200]}`")
-        except: 
-            pass # تجنب توقف الكود إذا فشل إرسال الصورة
+                send_telegram_photo("yt_error.png", f"⚠️ فشل يوتيوب. تم التقاط هذه الصورة من السيرفر:\n{str(e)[:100]}")
+            except Exception as pic_err:
+                send_telegram_alert(f"⚠️ فشل يوتيوب وفشلت كاميرا التجسس!\nالخطأ: {str(e)[:100]}")
 
 def publish_to_instagram(reciter_name, title):
     try:
         url_tg = f"https://api.telegram.org/bot{ERROR_BOT_TOKEN}/sendVideo"
         with open('final_reel.mp4', 'rb') as video_file:
-            requests.post(url_tg, data={'chat_id': ADMIN_CHAT_ID, 'caption': f"🎥 مقطع جاهز!\n\nالقارئ: {reciter_name}\nالسورة: {title}"}, files={'video': video_file}, timeout=200)
+            requests.post(url_tg, data={'chat_id': ADMIN_CHAT_ID, 'caption': f"🎥 مقطع جاهز!\n\nالقارئ: {reciter_name}\nالسورة: {title}"}, files={'video': video_file})
     except: pass
 
     is_thursday = datetime.now().strftime("%A") == "Thursday"
-    if is_thursday:
-        caption = f"✨ نور ما بين الجمعتين. لا تنسوا السنن والصلاة على النبي ﷺ.\n\nتلاوة القارئ: {reciter_name} 🤍\n#يوم_الجمعة #قرآن #عافية_قلب #تلاوة #راحة_نفسية"
-    else:
-        caption = f"عافية لقلبك 🤍. أرح مسمعك بتلاوة القارئ {reciter_name}.\n\n#قرآن #تلاوة #عافية_قلب #راحة #طمأنينة"
+    caption = f"✨ نور ما بين الجمعتين.\n\nالقارئ: {reciter_name} 🤍\n#يوم_الجمعة #قرآن #عافية_قلب #تلاوة" if is_thursday else f"عافية لقلبك 🤍.\nالقارئ: {reciter_name}.\n\n#قرآن #تلاوة #عافية_قلب #راحة"
     
     cl = Client()
     if os.path.exists(SESSION_FILE): cl.load_settings(SESSION_FILE)
@@ -494,7 +425,6 @@ def publish_to_instagram(reciter_name, title):
         cl.login(IG_USERNAME, IG_PASSWORD)
         cl.dump_settings(SESSION_FILE)
         cl.clip_upload("final_reel.mp4", caption, thumbnail="thumb.jpg")
-        print("🎉 تم النشر بنجاح!")
     except Exception as e:
         raise Exception(f"❌ فشل النشر: {str(e)}")
 
@@ -507,23 +437,17 @@ if __name__ == "__main__":
             clips_data = fetch_pexels_videos(dur)
             render_cinematic_video(dur, clips_data)
             
-            # 🛡️ العزل الإستراتيجي للمنصات 🛡️
-            # 1. يوتيوب (محمي بـ Try/Except داخلي، لن يوقف البرنامج إذا فشل)
-            try:
-                publish_to_youtube("final_reel.mp4", reciter, title)
-            except Exception as yt_err:
-                print(f"حدث خطأ غير متوقع في يوتيوب: {yt_err}")
+            try: publish_to_youtube("final_reel.mp4", reciter, title)
+            except Exception as yt_err: print(f"خطأ يوتيوب غير متوقع: {yt_err}")
 
-            # 2. إنستجرام (إذا فشل، سيعيد المحاولة لأنه المنصة الأساسية حالياً)
             publish_to_instagram(reciter, title)
-            
             send_telegram_alert("✅ تم إنجاز المهمة بنجاح والمشروع مستقر!")
             break 
             
         except Exception as e:
             if attempt < max_retries:
-                send_telegram_alert(f"⚠️ فشل محاولة {attempt}. جاري الإعادة...\nالسبب: `{str(e)}`")
+                send_telegram_alert(f"⚠️ فشل محاولة {attempt}...\n`{str(e)[:100]}`")
                 time.sleep(10)
             else:
-                send_telegram_alert(f"🚨 فشل نهائي للعملية بالكامل!\nالسبب: `{str(e)}`")
+                send_telegram_alert(f"🚨 فشل نهائي!\n`{str(e)[:100]}`")
                 sys.exit(1)
