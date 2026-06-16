@@ -336,24 +336,15 @@ def render_cinematic_video(audio_duration, clips_data):
         try: clip.close(); os.remove(name)
         except: pass
 
-def parse_netscape_cookies(cookies_txt):
-    cookies = []
-    for line in cookies_txt.splitlines():
-        if not line.strip() or line.startswith('#'): continue
-        parts = line.split('\t')
-        if len(parts) >= 7:
-            cookies.append({
-                "domain": parts[0], "path": parts[2], "secure": parts[3].lower() == 'true',
-                "expires": int(parts[4]) if parts[4].isdigit() else -1, "name": parts[5], "value": parts[6]
-            })
-    return cookies
 
 def publish_to_youtube(video_path, reciter_name, title):
     yt_cookies_str = os.environ.get("YT_COOKIES")
-    if not yt_cookies_str: return
+    if not yt_cookies_str:
+        print("⚠️ لم يتم العثور على YT_COOKIES، سيتم تخطي النشر في يوتيوب.")
+        return
 
     print("🚀 جاري النشر على يوتيوب شورتس عبر المتصفح الوهمي...")
-    page = None # تعريف المتغير خارج الـ try لتستطيع كاميرا التجسس التقاطه
+    page = None 
     try:
         from playwright.sync_api import sync_playwright
         with sync_playwright() as p:
@@ -361,8 +352,26 @@ def publish_to_youtube(video_path, reciter_name, title):
             context = browser.new_context()
             context.set_default_timeout(60000) 
             
-            cookies = parse_netscape_cookies(yt_cookies_str)
-            context.add_cookies(cookies)
+            # 🌟 تنظيف وحقن الكوكيز بصيغة JSON الاحترافية 🌟
+            raw_cookies = json.loads(yt_cookies_str)
+            cleaned_cookies = []
+            for c in raw_cookies:
+                clean_c = {
+                    "name": c["name"],
+                    "value": c["value"],
+                    "domain": c["domain"],
+                    "path": c["path"]
+                }
+                if "secure" in c: clean_c["secure"] = c["secure"]
+                if "httpOnly" in c: clean_c["httpOnly"] = c["httpOnly"]
+                if "sameSite" in c:
+                    ss = c["sameSite"].lower()
+                    if ss in ["no_restriction", "unspecified", "none"]: clean_c["sameSite"] = "None"
+                    elif ss == "lax": clean_c["sameSite"] = "Lax"
+                    elif ss == "strict": clean_c["sameSite"] = "Strict"
+                cleaned_cookies.append(clean_c)
+                
+            context.add_cookies(cleaned_cookies)
             
             page = context.new_page()
             page.goto("https://studio.youtube.com/?hl=en", timeout=90000)
@@ -401,7 +410,6 @@ def publish_to_youtube(video_path, reciter_name, title):
 
     except Exception as e:
         print(f"❌ فشل يوتيوب: {e}")
-        # 📸 كاميرا التجسس المحسنة 
         if page:
             try:
                 page.screenshot(path="yt_error.png")
